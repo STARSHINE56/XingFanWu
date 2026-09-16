@@ -128,7 +128,7 @@ class MySpaceView extends StatelessWidget {
                         children: [
                           Icon(Icons.info_outline_rounded, size: 20),
                           SizedBox(width: 8),
-                          Flexible(child: Text('关于 Kazumi')),
+                          Flexible(child: Text('关于 星番屋')),
                         ],
                       ),
                     ),
