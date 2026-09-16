@@ -325,6 +325,7 @@ jobs:
 
           "$APKSIGNER" verify \
             --verbose \
+            --print-certs \
             "$APK"
 
           EXPECTED_SHA256="$(
@@ -334,26 +335,20 @@ jobs:
               -keystore android/app/xingchen_release.jks \
               -storepass "$ANDROID_KEYSTORE_PASSWORD" \
               -alias "$ANDROID_KEY_ALIAS" \
-            | awk -F'SHA256:' '
-                /SHA256:/ {
-                  gsub(/[:[:space:]]/, "", $2)
-                  print toupper($2)
-                  exit
-                }
-              '
+            | sed -n 's/.*SHA256: //p' \
+            | head -n 1 \
+            | tr -d ' :\r\n' \
+            | tr '[:lower:]' '[:upper:]'
           )"
 
           ACTUAL_SHA256="$(
             "$APKSIGNER" verify \
               --print-certs \
               "$APK" \
-            | awk -F': ' '
-                /certificate SHA-256 digest/ {
-                  gsub(/[:[:space:]]/, "", $2)
-                  print toupper($2)
-                  exit
-                }
-              '
+            | sed -n 's/.*certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ' :\r\n' \
+            | tr '[:lower:]' '[:upper:]'
           )"
 
           if [ -z "$EXPECTED_SHA256" ]; then
