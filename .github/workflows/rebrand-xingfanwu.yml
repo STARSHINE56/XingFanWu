@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "星番屋版本号，例如 1.0.0"
+        description: "星番屋版本号，例如 1.0.0-beta.1"
         required: true
-        default: "1.0.0"
+        default: "1.0.0-beta.1"
       build_number:
         description: "内部版本号，例如 1"
         required: true
@@ -43,6 +43,7 @@ jobs:
         shell: bash
         run: |
           set -e
+
           if [ ! -f "branding/xingfanwu_icon.png" ]; then
             echo "::error::缺少 branding/xingfanwu_icon.png"
             echo "请把星番屋图标上传到仓库 branding/xingfanwu_icon.png 后重新运行。"
@@ -62,167 +63,466 @@ jobs:
 
           APP_NAME = "星番屋"
           APP_ID = "com.starshine.xingfanwu"
-          REPO = "https://github.com/STARSHINE56/XingFanWu"
-          VERSION = os.environ["APP_VERSION"].strip()
-          BUILD = os.environ["BUILD_NUMBER"].strip()
+          REPO_URL = "https://github.com/STARSHINE56/XingFanWu"
+          RELEASE_API = "https://api.github.com/repos/STARSHINE56/XingFanWu/releases/latest"
 
-          def read(path):
+          VERSION = os.environ["APP_VERSION"].strip()
+          BUILD_NUMBER = os.environ["BUILD_NUMBER"].strip()
+
+          def read_text(path):
               return Path(path).read_text(encoding="utf-8")
 
-          def write(path, text):
-              Path(path).write_text(text, encoding="utf-8")
+          def write_text(path, content):
+              Path(path).write_text(content, encoding="utf-8")
 
-          # Android 显示名
-          path = "android/app/src/main/AndroidManifest.xml"
-          text = read(path).replace('android:label="Kazumi"', 'android:label="星番屋"')
-          write(path, text)
+          def safe_replace(path, old, new):
+              file_path = Path(path)
 
-          # Android applicationId / namespace
-          path = "android/app/build.gradle"
-          text = read(path)
-          text = re.sub(r'namespace\s+"[^"]+"', f'namespace "{APP_ID}"', text, count=1)
-          text = re.sub(r'applicationId\s+"[^"]+"', f'applicationId "{APP_ID}"', text, count=1)
-          write(path, text)
+              if not file_path.exists():
+                  print(f"跳过不存在文件: {path}")
+                  return
 
-          # MainActivity 包路径；MethodChannel 名称保留，避免 Dart 端失配
-          old_activity = Path("android/app/src/main/kotlin/com/example/kazumi/MainActivity.kt")
-          new_activity = Path("android/app/src/main/kotlin/com/starshine/xingfanwu/MainActivity.kt")
+              content = file_path.read_text(encoding="utf-8")
+
+              if old in content:
+                  content = content.replace(old, new)
+                  file_path.write_text(content, encoding="utf-8")
+                  print(f"已处理: {path}")
+              else:
+                  print(f"未找到目标内容，跳过: {path}")
+
+          # ============================================================
+          # 1. Android 应用名称
+          # ============================================================
+
+          safe_replace(
+              "android/app/src/main/AndroidManifest.xml",
+              'android:label="Kazumi"',
+              'android:label="星番屋"',
+          )
+
+          # ============================================================
+          # 2. Android applicationId 和 namespace
+          # ============================================================
+
+          gradle_path = Path("android/app/build.gradle")
+
+          if gradle_path.exists():
+              content = gradle_path.read_text(encoding="utf-8")
+
+              content = re.sub(
+                  r'namespace\s+"[^"]+"',
+                  f'namespace "{APP_ID}"',
+                  content,
+                  count=1,
+              )
+
+              content = re.sub(
+                  r'applicationId\s+"[^"]+"',
+                  f'applicationId "{APP_ID}"',
+                  content,
+                  count=1,
+              )
+
+              gradle_path.write_text(content, encoding="utf-8")
+
+          # ============================================================
+          # 3. MainActivity Kotlin 包名和目录
+          # ============================================================
+
+          old_activity = Path(
+              "android/app/src/main/kotlin/com/example/kazumi/MainActivity.kt"
+          )
+
+          new_activity = Path(
+              "android/app/src/main/kotlin/com/starshine/xingfanwu/MainActivity.kt"
+          )
+
           if old_activity.exists():
-              text = old_activity.read_text(encoding="utf-8")
-              text = text.replace("package com.example.kazumi", "package com.starshine.xingfanwu", 1)
-              new_activity.parent.mkdir(parents=True, exist_ok=True)
-              new_activity.write_text(text, encoding="utf-8")
+              content = old_activity.read_text(encoding="utf-8")
+
+              content = content.replace(
+                  "package com.example.kazumi",
+                  "package com.starshine.xingfanwu",
+                  1,
+              )
+
+              new_activity.parent.mkdir(
+                  parents=True,
+                  exist_ok=True,
+              )
+
+              new_activity.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
               old_activity.unlink()
+
+              print("已迁移 MainActivity.kt")
+
           elif new_activity.exists():
-              text = new_activity.read_text(encoding="utf-8")
-              text = re.sub(r"^package\s+\S+", "package com.starshine.xingfanwu", text, count=1, flags=re.M)
-              new_activity.write_text(text, encoding="utf-8")
+              content = new_activity.read_text(encoding="utf-8")
+
+              content = re.sub(
+                  r"^package\s+\S+",
+                  "package com.starshine.xingfanwu",
+                  content,
+                  count=1,
+                  flags=re.M,
+              )
+
+              new_activity.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
           else:
               raise RuntimeError("未找到 MainActivity.kt")
 
-          # 版本号
-          path = "pubspec.yaml"
-          text = read(path)
-          text = re.sub(r"(?m)^version:\s*.+$", f"version: {VERSION}+{BUILD}", text, count=1)
+          # ============================================================
+          # 4. pubspec 版本号
+          # ============================================================
 
-          # Android-only 图标配置
-          text = text.replace("  ios: true\n", "  ios: false\n", 1)
-          text = re.sub(r'(?m)^  adaptive_icon_background:.*$', '  adaptive_icon_background: "#0B1E5B"', text, count=1)
-          text = re.sub(
-              r'(?ms)^  macos:\n    generate: true\n    image_path: assets/images/logo/logo_rounded\.png\n',
-              '',
-              text,
+          pubspec_path = Path("pubspec.yaml")
+
+          content = pubspec_path.read_text(encoding="utf-8")
+
+          content = re.sub(
+              r"(?m)^version:\s*.+$",
+              f"version: {VERSION}+{BUILD_NUMBER}",
+              content,
+              count=1,
           )
-          text = re.sub(
-              r'(?ms)^  windows:\n    generate: true\n    image_path: assets/images/logo/logo_rounded\.png\n    icon_size: 256\n',
-              '',
-              text,
+
+          # 只生成 Android 图标
+          content = content.replace(
+              "  ios: true\n",
+              "  ios: false\n",
+              1,
           )
-          write(path, text)
 
-          # 星番屋图标
-          shutil.copyfile("branding/xingfanwu_icon.png", "assets/images/logo/logo_android.png")
-          shutil.copyfile("branding/xingfanwu_icon.png", "assets/images/logo/logo_rounded.png")
+          # 星番屋深蓝背景
+          content = re.sub(
+              r'(?m)^  adaptive_icon_background:.*$',
+              '  adaptive_icon_background: "#0B1E5B"',
+              content,
+              count=1,
+          )
 
-          # 用户可见品牌文字
+          # 移除 macOS 图标生成配置
+          content = re.sub(
+              r'(?ms)^  macos:\n'
+              r'    generate: true\n'
+              r'    image_path: assets/images/logo/logo_rounded\.png\n',
+              '',
+              content,
+          )
+
+          # 移除 Windows 图标生成配置
+          content = re.sub(
+              r'(?ms)^  windows:\n'
+              r'    generate: true\n'
+              r'    image_path: assets/images/logo/logo_rounded\.png\n'
+              r'    icon_size: 256\n',
+              '',
+              content,
+          )
+
+          pubspec_path.write_text(
+              content,
+              encoding="utf-8",
+          )
+
+          # ============================================================
+          # 5. 替换 Android 图标
+          # ============================================================
+
+          shutil.copyfile(
+              "branding/xingfanwu_icon.png",
+              "assets/images/logo/logo_android.png",
+          )
+
+          shutil.copyfile(
+              "branding/xingfanwu_icon.png",
+              "assets/images/logo/logo_rounded.png",
+          )
+
+          # ============================================================
+          # 6. 用户可见 Kazumi 文案全部替换为 星番屋
+          # ============================================================
+
           replacements = {
+              "lib/main.dart": [
+                  (
+                      "title: 'Kazumi'",
+                      "title: '星番屋'",
+                  ),
+                  (
+                      'title: "Kazumi"',
+                      'title: "星番屋"',
+                  ),
+              ],
+
               "lib/app_widget.dart": [
-                  ('title: "Kazumi"', 'title: "星番屋"'),
-                  ("setToolTip('Kazumi')", "setToolTip('星番屋')"),
-                  ("label: '退出 Kazumi'", "label: '退出 星番屋'"),
+                  (
+                      'title: "Kazumi"',
+                      'title: "星番屋"',
+                  ),
+                  (
+                      "title: 'Kazumi'",
+                      "title: '星番屋'",
+                  ),
+                  (
+                      "setToolTip('Kazumi')",
+                      "setToolTip('星番屋')",
+                  ),
+                  (
+                      'setToolTip("Kazumi")',
+                      'setToolTip("星番屋")',
+                  ),
+                  (
+                      "label: '退出 Kazumi'",
+                      "label: '退出 星番屋'",
+                  ),
               ],
+
               "lib/pages/about/about_page.dart": [
-                  ("'Kazumi'", "'星番屋'"),
+                  (
+                      "'Kazumi'",
+                      "'星番屋'",
+                  ),
+                  (
+                      '"Kazumi"',
+                      '"星番屋"',
+                  ),
               ],
+
               "lib/pages/onboarding/steps/disclaimer_step.dart": [
-                  ("title: '欢迎来到 Kazumi'", "title: '欢迎来到 星番屋'"),
+                  (
+                      "title: '欢迎来到 Kazumi'",
+                      "title: '欢迎来到 星番屋'",
+                  ),
               ],
+
               "lib/pages/route_error_page.dart": [
-                  ("Text('Kazumi')", "Text('星番屋')"),
+                  (
+                      "Text('Kazumi')",
+                      "Text('星番屋')",
+                  ),
               ],
+
               "lib/pages/index_module.dart": [
-                  ("Text('Kazumi')", "Text('星番屋')"),
+                  (
+                      "Text('Kazumi')",
+                      "Text('星番屋')",
+                  ),
               ],
+
               "lib/pages/settings/settings_module.dart": [
-                  ("applicationName: 'Kazumi'", "applicationName: '星番屋'"),
-                  ("applicationLegalese: 'Kazumi · GNU General Public License v3.0'",
-                   "applicationLegalese: '星番屋 · GNU General Public License v3.0'"),
+                  (
+                      "applicationName: 'Kazumi'",
+                      "applicationName: '星番屋'",
+                  ),
+                  (
+                      "applicationLegalese: 'Kazumi · GNU General Public License v3.0'",
+                      "applicationLegalese: '星番屋 · GNU General Public License v3.0'",
+                  ),
               ],
+
               "lib/pages/settings/interface_settings.dart": [
-                  ("'退出 Kazumi'", "'退出 星番屋'"),
+                  (
+                      "'退出 Kazumi'",
+                      "'退出 星番屋'",
+                  ),
               ],
+
               "lib/bean/dialog/exit_confirmation_dialog.dart": [
-                  ("'关闭 Kazumi？'", "'关闭 星番屋？'"),
-                  ("'退出 Kazumi'", "'退出 星番屋'"),
+                  (
+                      "'关闭 Kazumi？'",
+                      "'关闭 星番屋？'",
+                  ),
+                  (
+                      "'退出 Kazumi'",
+                      "'退出 星番屋'",
+                  ),
               ],
           }
 
-          for p, pairs in replacements.items():
-              fp = Path(p)
-              if not fp.exists():
+          for path, pairs in replacements.items():
+
+              file_path = Path(path)
+
+              if not file_path.exists():
+                  print(f"跳过不存在文件: {path}")
                   continue
-              text = fp.read_text(encoding="utf-8")
-              for old, new in pairs:
-                  text = text.replace(old, new)
-              fp.write_text(text, encoding="utf-8")
 
-          # Android fastlane 标题
-          title_file = Path("fastlane/metadata/android/zh-CN/title.txt")
-          if title_file.exists():
-              title_file.write_text("星番屋\n", encoding="utf-8")
-
-          # 自己的项目主页 / 更新 / Issue
-          path = "lib/request/config/api_endpoints.dart"
-          text = read(path)
-          text = text.replace(
-              'static const String projectUrl = "https://kazumi.app/";',
-              f'static const String projectUrl = "{REPO}";'
-          )
-          text = text.replace(
-              'static const String sourceUrl = "https://github.com/Predidit/Kazumi";',
-              f'static const String sourceUrl = "{REPO}";'
-          )
-          text = text.replace(
-              "'https://api.github.com/repos/Predidit/Kazumi/releases/latest';",
-              "'https://api.github.com/repos/STARSHINE56/XingFanWu/releases/latest';"
-          )
-          write(path, text)
-
-          # About 页移除原 Telegram 项
-          p = Path("lib/pages/about/about_page.dart")
-          if p.exists():
-              text = p.read_text(encoding="utf-8")
-              start = text.find("                    AboutLinkTile(\n                      icon: Icons.forum_rounded,")
-              if start != -1:
-                  end = text.find("                    ),", start)
-                  if end != -1:
-                      end += len("                    ),")
-                      text = text[:start] + text[end:]
-              p.write_text(text, encoding="utf-8")
-
-          # 致谢页移除旧图标作者项
-          p = Path("lib/pages/about/credits_page.dart")
-          if p.exists():
-              text = p.read_text(encoding="utf-8")
-              start = text.find("                AboutLinkTile(\n                  icon: Icons.brush_rounded,")
-              if start != -1:
-                  end = text.find("                ),", start)
-                  if end != -1:
-                      end += len("                ),")
-                      text = text[:start] + text[end:]
-              p.write_text(text, encoding="utf-8")
-
-          # User-Agent 改成自己的项目
-          p = Path("lib/utils/constants.dart")
-          if p.exists():
-              text = p.read_text(encoding="utf-8")
-              text = text.replace(
-                  "Predidit/Kazumi/${ApiEndpoints.version} (Android) (https://github.com/Predidit/Kazumi)",
-                  "STARSHINE56/XingFanWu/${ApiEndpoints.version} (Android) (https://github.com/STARSHINE56/XingFanWu)"
+              content = file_path.read_text(
+                  encoding="utf-8"
               )
-              p.write_text(text, encoding="utf-8")
 
-          print(f"完成：{APP_NAME} {VERSION}+{BUILD} / {APP_ID}")
+              for old, new in pairs:
+                  content = content.replace(
+                      old,
+                      new,
+                  )
+
+              file_path.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
+              print(f"品牌文案已处理: {path}")
+
+          # ============================================================
+          # 7. Android Fastlane 应用名称
+          # ============================================================
+
+          title_file = Path(
+              "fastlane/metadata/android/zh-CN/title.txt"
+          )
+
+          if title_file.exists():
+              title_file.write_text(
+                  "星番屋\n",
+                  encoding="utf-8",
+              )
+
+          # ============================================================
+          # 8. 项目地址、源码地址、更新地址
+          # ============================================================
+
+          endpoint_path = Path(
+              "lib/request/config/api_endpoints.dart"
+          )
+
+          if endpoint_path.exists():
+
+              content = endpoint_path.read_text(
+                  encoding="utf-8"
+              )
+
+              content = content.replace(
+                  'static const String projectUrl = "https://kazumi.app/";',
+                  f'static const String projectUrl = "{REPO_URL}";',
+              )
+
+              content = content.replace(
+                  'static const String sourceUrl = "https://github.com/Predidit/Kazumi";',
+                  f'static const String sourceUrl = "{REPO_URL}";',
+              )
+
+              content = content.replace(
+                  "'https://api.github.com/repos/Predidit/Kazumi/releases/latest';",
+                  f"'{RELEASE_API}';",
+              )
+
+              endpoint_path.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
+          # ============================================================
+          # 9. About 页面移除原项目 Telegram 入口
+          # ============================================================
+
+          about_path = Path(
+              "lib/pages/about/about_page.dart"
+          )
+
+          if about_path.exists():
+
+              content = about_path.read_text(
+                  encoding="utf-8"
+              )
+
+              pattern = re.compile(
+                  r"\s*AboutLinkTile\(\s*"
+                  r"icon:\s*Icons\.forum_rounded,\s*"
+                  r"title:\s*'Telegram',\s*"
+                  r"url:\s*ApiEndpoints\.telegramGroup,\s*"
+                  r"\),",
+                  re.S,
+              )
+
+              content = pattern.sub(
+                  "",
+                  content,
+              )
+
+              about_path.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
+          # ============================================================
+          # 10. 移除原项目图标作者入口
+          # ============================================================
+
+          credits_path = Path(
+              "lib/pages/about/credits_page.dart"
+          )
+
+          if credits_path.exists():
+
+              content = credits_path.read_text(
+                  encoding="utf-8"
+              )
+
+              pattern = re.compile(
+                  r"\s*AboutLinkTile\(\s*"
+                  r"icon:\s*Icons\.brush_rounded,\s*"
+                  r"title:\s*'图标作者',\s*"
+                  r"subtitle:\s*'Pixiv',\s*"
+                  r"url:\s*ApiEndpoints\.iconUrl,\s*"
+                  r"\),",
+                  re.S,
+              )
+
+              content = pattern.sub(
+                  "",
+                  content,
+              )
+
+              credits_path.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
+          # ============================================================
+          # 11. User-Agent 改成星番屋
+          # ============================================================
+
+          constants_path = Path(
+              "lib/utils/constants.dart"
+          )
+
+          if constants_path.exists():
+
+              content = constants_path.read_text(
+                  encoding="utf-8"
+              )
+
+              content = content.replace(
+                  "Predidit/Kazumi/${ApiEndpoints.version} (Android) "
+                  "(https://github.com/Predidit/Kazumi)",
+                  "STARSHINE56/XingFanWu/${ApiEndpoints.version} (Android) "
+                  "(https://github.com/STARSHINE56/XingFanWu)",
+              )
+
+              constants_path.write_text(
+                  content,
+                  encoding="utf-8",
+              )
+
+          print("")
+          print("======================================")
+          print("星番屋品牌化完成")
+          print(f"应用名: {APP_NAME}")
+          print(f"包名: {APP_ID}")
+          print(f"版本号: {VERSION}")
+          print(f"内部版本号: {BUILD_NUMBER}")
+          print("======================================")
 
       - name: 安装 Flutter 依赖
         run: flutter pub get
@@ -230,25 +530,89 @@ jobs:
       - name: 生成 Android 图标
         run: dart run flutter_launcher_icons
 
-      - name: 格式化 Dart
+      - name: 格式化 Dart 文件
+        shell: bash
         run: |
-          dart format             lib/app_widget.dart             lib/pages/about/about_page.dart             lib/pages/about/credits_page.dart             lib/pages/onboarding/steps/disclaimer_step.dart             lib/pages/route_error_page.dart             lib/pages/index_module.dart             lib/pages/settings/settings_module.dart             lib/pages/settings/interface_settings.dart             lib/bean/dialog/exit_confirmation_dialog.dart             lib/request/config/api_endpoints.dart             lib/utils/constants.dart
+          set -e
+
+          FILES=(
+            lib/main.dart
+            lib/app_widget.dart
+            lib/pages/about/about_page.dart
+            lib/pages/about/credits_page.dart
+            lib/pages/onboarding/steps/disclaimer_step.dart
+            lib/pages/route_error_page.dart
+            lib/pages/index_module.dart
+            lib/pages/settings/settings_module.dart
+            lib/pages/settings/interface_settings.dart
+            lib/bean/dialog/exit_confirmation_dialog.dart
+            lib/request/config/api_endpoints.dart
+            lib/utils/constants.dart
+          )
+
+          EXISTING_FILES=()
+
+          for file in "${FILES[@]}"; do
+            if [ -f "$file" ]; then
+              EXISTING_FILES+=("$file")
+            fi
+          done
+
+          if [ "${#EXISTING_FILES[@]}" -gt 0 ]; then
+            dart format "${EXISTING_FILES[@]}"
+          fi
 
       - name: 扫描用户可见 Kazumi 残留
         shell: bash
         run: |
           set -e
-          if grep -RInE             --include='*.dart'             --include='AndroidManifest.xml'             --include='title.txt'             "欢迎来到 Kazumi|关闭 Kazumi|退出 Kazumi|Text\(['\"]Kazumi['\"]\)|title:[[:space:]]*['\"]Kazumi['\"]|android:label=\"Kazumi\""             lib android/app/src/main fastlane/metadata/android/zh-CN 2>/dev/null; then
-            echo "::error::仍发现用户可见的 Kazumi 文案"
+
+          echo "开始扫描用户界面中的 Kazumi 文案..."
+
+          FOUND=0
+
+          while IFS= read -r line; do
+            echo "$line"
+            FOUND=1
+          done < <(
+            grep -RInE \
+              --include='*.dart' \
+              --include='AndroidManifest.xml' \
+              --include='title.txt' \
+              "欢迎来到 Kazumi|关闭 Kazumi|退出 Kazumi|Text\\(['\"]Kazumi['\"]\\)|title:[[:space:]]*['\"]Kazumi['\"]|android:label=\"Kazumi\"|applicationName:[[:space:]]*'Kazumi'" \
+              lib \
+              android/app/src/main \
+              fastlane/metadata/android/zh-CN \
+              2>/dev/null || true
+          )
+
+          if [ "$FOUND" -eq 1 ]; then
+            echo ""
+            echo "::error::仍发现用户可见的 Kazumi 文案，请查看上方文件位置。"
             exit 1
           fi
-          echo "品牌扫描通过"
+
+          echo "品牌扫描通过，没有发现常见用户可见 Kazumi 文案。"
 
       - name: Flutter 静态检查
         run: flutter analyze
 
       - name: 构建 Android Release APK
         run: flutter build apk --release
+
+      - name: 检查 APK 是否生成
+        shell: bash
+        run: |
+          set -e
+
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -f "$APK_PATH" ]; then
+            echo "::error::APK 构建完成后未找到 $APK_PATH"
+            exit 1
+          fi
+
+          ls -lh "$APK_PATH"
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
@@ -257,19 +621,27 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-      - name: 提交改动回 main
+      - name: 提交品牌化改动回 main
         shell: bash
         run: |
           set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add pubspec.yaml pubspec.lock android/app assets/images/logo lib fastlane/metadata/android/zh-CN/title.txt
+          git add \
+            pubspec.yaml \
+            pubspec.lock \
+            android/app \
+            assets/images/logo \
+            lib \
+            fastlane/metadata/android/zh-CN/title.txt
 
           if git diff --cached --quiet; then
-            echo "没有需要提交的改动"
+            echo "没有需要提交的品牌化改动。"
             exit 0
           fi
 
           git commit -m "品牌化为星番屋 v${{ inputs.version }}"
+
           git push origin HEAD:main
