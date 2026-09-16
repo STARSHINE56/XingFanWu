@@ -8,13 +8,16 @@ class ApiEndpoints {
   static const int apiLevel = 8;
 
   /// 项目主页
-  static const String projectUrl = "https://github.com/STARSHINE56/XingFanWu";
+  static const String projectUrl =
+      "https://github.com/STARSHINE56/XingFanWu";
 
-  /// Github 项目主页
-  static const String sourceUrl = "https://github.com/STARSHINE56/XingFanWu";
+  /// GitHub 项目主页
+  static const String sourceUrl =
+      "https://github.com/STARSHINE56/XingFanWu";
 
   /// 图标作者
-  static const String iconUrl = "https://www.pixiv.net/users/66219277";
+  static const String iconUrl =
+      "https://www.pixiv.net/users/66219277";
 
   /// 规则仓库
   static const String pluginShop =
@@ -24,80 +27,108 @@ class ApiEndpoints {
   static const String pluginShopMirror =
       'https://raw.gitcode.com/gh_mirrors/ka/KazumiRules/raw/main/';
 
-  /// 在线升级
+  /// 星番屋在线升级
   static const String latestApp =
       'https://api.github.com/repos/STARSHINE56/XingFanWu/releases/latest';
 
   /// Bangumi 镜像测试后端
-  static const String bangumiMirrorDomain = 'https://api.kazumi.fyi';
+  static const String bangumiMirrorDomain =
+      'https://api.kazumi.fyi';
 
-  /// Kazumi 镜像后端应用更新
+  /// 星番屋应用更新
+  ///
+  /// 保留 latestAppMirror 这个字段名，
+  /// 避免影响现有更新逻辑。
+  /// 实际更新来源已经改为星番屋自己的 GitHub Releases。
   static const String latestAppMirror =
-      '$bangumiMirrorDomain/kazumi/v1/app/latest';
+      'https://api.github.com/repos/STARSHINE56/XingFanWu/releases/latest';
 
   /// 弹弹官网
-  static const String dandanIndex = 'https://www.dandanplay.com/';
+  static const String dandanIndex =
+      'https://www.dandanplay.com/';
 
   /// Bangumi 官网
-  static const String bangumiIndex = 'https://bangumi.tv/';
+  static const String bangumiIndex =
+      'https://bangumi.tv/';
 
   /// bangumi API
-  static const String bangumiAPIDomain = 'https://api.bgm.tv';
+  static const String bangumiAPIDomain =
+      'https://api.bgm.tv';
 
   /// Bangumi 鉴权 API
-  static const String bangumiAuthAPIMirrorDomain = 'https://api.bgmapi.com';
+  static const String bangumiAuthAPIMirrorDomain =
+      'https://api.bgmapi.com';
 
   /// Telegram 群组
-  static const String telegramGroup = 'https://t.me/kazumi_app';
+  static const String telegramGroup =
+      'https://t.me/kazumi_app';
 
   /// 番剧信息
-  static const String bangumiInfoByID = '/v0/subjects/{0}';
+  static const String bangumiInfoByID =
+      '/v0/subjects/{0}';
 
   /// 条目关联信息
-  static const String bangumiRelationsByID = '/v0/subjects/{0}/subjects';
+  static const String bangumiRelationsByID =
+      '/v0/subjects/{0}/subjects';
 
   /// 条目搜索
   static const String bangumiRankSearch =
       '/v0/search/subjects?limit={0}&offset={1}';
 
   /// 从条目ID获取角色信息
-  static const String bangumiCharacterByID = '/v0/subjects/{0}/characters';
+  static const String bangumiCharacterByID =
+      '/v0/subjects/{0}/characters';
 
   /// 从条目ID获取工作人员信息
-  static const String bangumiStaffByID = '/v0/subjects/{0}/persons';
+  static const String bangumiStaffByID =
+      '/v0/subjects/{0}/persons';
 
   /// 从条目ID获取剧集ID
-  static const String bangumiEpisodeByID = '/v0/episodes';
+  static const String bangumiEpisodeByID =
+      '/v0/episodes';
 
   /// 返回当前 Access Token 对应的用户信息
-  static const String bangumiUsernameByToken = '/v0/me';
+  static const String bangumiUsernameByToken =
+      '/v0/me';
 
   /// 新增或修改用户单个条目收藏
-  static const String bangumiSetCollection = '/v0/users/-/collections/{0}';
+  static const String bangumiSetCollection =
+      '/v0/users/-/collections/{0}';
 
-  /// 获取用户全部收藏（不限类型）。用户名，分页参数1(limit)，分页参数2(offset)
+  /// 获取用户全部收藏（不限类型）。
+  /// 用户名，分页参数1(limit)，分页参数2(offset)
   static const String bangumiGetAllCollections =
       '/v0/users/{0}/collections?subject_type=2&limit={1}&offset={2}';
 
   /// Bangumi Next API Domain
-  static const String bangumiAPINextDomain = 'https://next.bgm.tv';
+  static const String bangumiAPINextDomain =
+      'https://next.bgm.tv';
 
   /// 每日放送
-  static const String bangumiCalendar = '/p1/calendar';
+  static const String bangumiCalendar =
+      '/p1/calendar';
 
   /// 番剧趋势
-  static const String bangumiTrendsNext = '/p1/trending/subjects';
+  static const String bangumiTrendsNext =
+      '/p1/trending/subjects';
 
   /// Kazumi Bangumi 镜像缓存榜单
+  ///
+  /// 这里属于后端接口路径，
+  /// 不要因为改品牌名而修改。
   static const String bangumiMirrorPopularSubjects =
       '/kazumi/v1/popular/subjects';
 
   /// Kazumi Bangumi 镜像季节时间表
+  ///
+  /// 这里属于后端接口路径，
+  /// 不要因为改品牌名而修改。
   static const String bangumiMirrorSeasonCalendar =
       '/kazumi/v1/calendar/season';
 
   /// 番剧信息
-  static const String bangumiInfoByIDNext = '/p1/subjects/{0}';
+  static const String bangumiInfoByIDNext =
+      '/p1/subjects/{0}';
 
   /// 番剧评论
   static const String bangumiCommentsByIDNext =
@@ -116,26 +147,38 @@ class ApiEndpoints {
       '/p1/characters/{0}/comments';
 
   /// DanDanPlay API Domain
-  static const String dandanAPIDomain = 'https://api.dandanplay.net';
+  static const String dandanAPIDomain =
+      'https://api.dandanplay.net';
 
   /// 获取弹幕
-  static const String dandanAPIComment = "/api/v2/comment/";
+  static const String dandanAPIComment =
+      "/api/v2/comment/";
 
   /// 检索弹弹番剧元数据
-  static const String dandanAPISearchEpisodes = "/api/v2/search/episodes";
+  static const String dandanAPISearchEpisodes =
+      "/api/v2/search/episodes";
 
   /// 获取弹弹番剧元数据
-  static const String dandanAPIInfo = "/api/v2/bangumi/";
+  static const String dandanAPIInfo =
+      "/api/v2/bangumi/";
 
   /// 获取弹弹番剧元数据（通过BGM番剧ID）
-  static const String dandanAPIInfoByBgmBangumiId = "/api/v2/bangumi/bgmtv/{0}";
+  static const String dandanAPIInfoByBgmBangumiId =
+      "/api/v2/bangumi/bgmtv/{0}";
 
   /// 图片识别番剧
-  static const String traceApi = 'https://api.trace.moe/search';
+  static const String traceApi =
+      'https://api.trace.moe/search';
 
-  static String formatUrl(String url, List<dynamic> params) {
+  static String formatUrl(
+    String url,
+    List<dynamic> params,
+  ) {
     for (int i = 0; i < params.length; i++) {
-      url = url.replaceAll('{$i}', params[i].toString());
+      url = url.replaceAll(
+        '{$i}',
+        params[i].toString(),
+      );
     }
     return url;
   }
