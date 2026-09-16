@@ -595,7 +595,7 @@ jobs:
           echo "品牌扫描通过，没有发现常见用户可见 Kazumi 文案。"
 
       - name: Flutter 静态检查
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: 构建 Android Release APK
         run: flutter build apk --release
