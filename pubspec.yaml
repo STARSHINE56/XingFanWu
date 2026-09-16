@@ -1,7 +1,7 @@
 name: kazumi
 description: "A new Flutter project."
 publish_to: "none"
-version: 2.3.3+20303
+version: 1.0.0-beta.1+1
 
 environment:
   sdk: ">=3.3.4 <4.0.0"
@@ -155,21 +155,14 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false
   remove_alpha_ios: true
   image_path: assets/images/logo/logo_android.png
   image_path_android: assets/images/logo/logo_android.png
   image_path_ios: assets/images/logo/logo_ios.png
-  adaptive_icon_background: "#ffffff"
+  adaptive_icon_background: "#0B1E5B"
   adaptive_icon_foreground: assets/images/logo/logo_android.png
   adaptive_icon_monochrome: assets/images/logo/logo_android.png
-  macos:
-    generate: true
-    image_path: assets/images/logo/logo_rounded.png
-  windows:
-    generate: true
-    image_path: assets/images/logo/logo_rounded.png
-    icon_size: 256
 
 flutter_native_splash:
   android: false

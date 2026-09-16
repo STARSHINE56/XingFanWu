@@ -15,7 +15,7 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
   late bool showRating;
   late String defaultPage;
   int _exitBehavior = GStorage.getSetting(SettingsKeys.exitBehavior);
-  static const _exitBehaviorTitles = ['退出 Kazumi', '最小化至托盘', '每次都询问'];
+  static const _exitBehaviorTitles = ['退出 星番屋', '最小化至托盘', '每次都询问'];
   final MenuController defaultPageMenuController = MenuController();
 
   static const Map<String, String> defaultPageMap = {

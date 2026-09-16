@@ -1,4 +1,4 @@
-package com.example.kazumi
+package com.starshine.xingfanwu
 
 import android.app.PendingIntent
 import android.content.Intent

@@ -37,11 +37,6 @@ class AboutPage extends StatelessWidget {
                       title: '问题反馈',
                       url: '${ApiEndpoints.sourceUrl}/issues',
                     ),
-                    AboutLinkTile(
-                      icon: Icons.forum_rounded,
-                      title: 'Telegram',
-                      url: ApiEndpoints.telegramGroup,
-                    ),
                   ],
                 ),
                 ContentSection.group(
@@ -112,7 +107,7 @@ class _ProjectHeader extends StatelessWidget {
           Semantics(
             header: true,
             child: Text(
-              'Kazumi',
+              '星番屋',
               style: theme.textTheme.displayMedium?.copyWith(
                 color: colors.primary,
                 fontWeight: FontWeight.w600,

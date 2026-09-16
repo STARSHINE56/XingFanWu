@@ -15,7 +15,7 @@ class RouteErrorPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const SysAppBar(title: Text('Kazumi')),
+      appBar: const SysAppBar(title: Text('星番屋')),
       body: GeneralErrorWidget(
         title: '无法打开页面',
         errMsg: message,

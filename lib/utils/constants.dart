@@ -87,7 +87,7 @@ const List<String> acceptLanguageList = [
 /// Bangumi API 文档要求的UA格式
 Map<String, String> bangumiHTTPHeader = {
   'user-agent':
-      'Predidit/Kazumi/${ApiEndpoints.version} (Android) (https://github.com/Predidit/Kazumi)',
+      'STARSHINE56/XingFanWu/${ApiEndpoints.version} (Android) (https://github.com/STARSHINE56/XingFanWu)',
   'referer': '',
   'content-type': 'application/json'
 };

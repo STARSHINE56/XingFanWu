@@ -21,12 +21,6 @@ class CreditsPage extends StatelessWidget {
                   title: '贡献者',
                   url: '${ApiEndpoints.sourceUrl}/graphs/contributors',
                 ),
-                AboutLinkTile(
-                  icon: Icons.brush_rounded,
-                  title: '图标作者',
-                  subtitle: 'Pixiv',
-                  url: ApiEndpoints.iconUrl,
-                ),
               ],
             ),
             const SizedBox(height: 24),
