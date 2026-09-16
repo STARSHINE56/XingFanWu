@@ -1,0 +1,529 @@
+name: 星番屋正式签名 APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号，例如 1.0.0"
+        required: true
+        default: "1.0.0"
+        type: string
+
+      build_number:
+        description: "内部版本号，例如 1"
+        required: true
+        default: "1"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    name: 构建正式签名 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # ============================================================
+      # 1. 检出源码
+      # ============================================================
+
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # 2. Java
+      # ============================================================
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ============================================================
+      # 3. Flutter
+      # ============================================================
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.3"
+          channel: stable
+          cache: true
+
+      # ============================================================
+      # 4. 检查版本号输入
+      # ============================================================
+
+      - name: 检查版本号
+        shell: bash
+        env:
+          APP_VERSION: ${{ inputs.version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::版本号格式不正确：$APP_VERSION"
+            echo "正式版示例：1.0.0"
+            echo "测试版示例：1.0.0-beta.1"
+            exit 1
+          fi
+
+          if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::build_number 必须是整数"
+            exit 1
+          fi
+
+          echo "版本号：$APP_VERSION"
+          echo "内部版本号：$BUILD_NUMBER"
+
+      # ============================================================
+      # 5. 检查四个正式签名 Secret
+      # ============================================================
+
+      - name: 检查正式签名配置
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          FAILED=0
+
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::缺少 ANDROID_KEYSTORE_BASE64"
+            FAILED=1
+          fi
+
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::error::缺少 ANDROID_KEYSTORE_PASSWORD"
+            FAILED=1
+          fi
+
+          if [ -z "$ANDROID_KEY_ALIAS" ]; then
+            echo "::error::缺少 ANDROID_KEY_ALIAS"
+            FAILED=1
+          fi
+
+          if [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "::error::缺少 ANDROID_KEY_PASSWORD"
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "四个正式签名 Secrets 均已配置。"
+
+      # ============================================================
+      # 6. 从 Secret 恢复 JKS
+      # ============================================================
+
+      - name: 恢复正式签名文件
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          KEYSTORE_PATH="android/app/xingchen_release.jks"
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$KEYSTORE_PATH"
+
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::JKS 恢复失败或文件为空"
+            exit 1
+          fi
+
+          echo "JKS 已成功恢复到 Actions 临时环境。"
+
+      # ============================================================
+      # 7. 验证 JKS 和 Alias
+      # ============================================================
+
+      - name: 验证签名文件
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          keytool \
+            -list \
+            -keystore android/app/xingchen_release.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            >/dev/null
+
+          echo "JKS 密码和 Alias 验证成功。"
+          echo "Alias 已找到。"
+
+      # ============================================================
+      # 8. 临时修改 Gradle 使用正式签名
+      #
+      # 注意：
+      # 这里只修改 GitHub Actions Runner 内的临时文件，
+      # 不会把密码或 JKS 提交到仓库。
+      # ============================================================
+
+      - name: 配置 Gradle 正式签名
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("android/app/build.gradle")
+
+          if not path.exists():
+              raise SystemExit(
+                  "找不到 android/app/build.gradle"
+              )
+
+          content = path.read_text(
+              encoding="utf-8"
+          )
+
+          signing_block = '''
+              signingConfigs {
+                  release {
+                      storeFile file("xingchen_release.jks")
+                      storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+                  }
+              }
+
+          '''
+
+          if "signingConfigs {" not in content:
+              target = "android {"
+
+              if target not in content:
+                  raise SystemExit(
+                      "build.gradle 中没有找到 android {"
+                  )
+
+              content = content.replace(
+                  target,
+                  target + "\\n" + signing_block,
+                  1,
+              )
+
+          if "signingConfig signingConfigs.debug" in content:
+              content = content.replace(
+                  "signingConfig signingConfigs.debug",
+                  "signingConfig signingConfigs.release",
+                  1,
+              )
+          elif "signingConfig signingConfigs.release" not in content:
+              raise SystemExit(
+                  "没有找到 release signingConfig，停止构建"
+              )
+
+          path.write_text(
+              content,
+              encoding="utf-8",
+          )
+
+          print(
+              "Gradle 已临时切换为正式签名。"
+          )
+
+      # ============================================================
+      # 9. 防止意外继续使用 debug 签名
+      # ============================================================
+
+      - name: 检查 Gradle 签名配置
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -A10 "release {" android/app/build.gradle \
+            | grep -q "signingConfigs.debug"; then
+
+            echo "::error::release 仍然使用 debug 签名"
+            exit 1
+          fi
+
+          if ! grep -q \
+            "signingConfig signingConfigs.release" \
+            android/app/build.gradle; then
+
+            echo "::error::没有检测到正式 release signingConfig"
+            exit 1
+          fi
+
+          echo "Gradle 正式签名配置检查通过。"
+
+      # ============================================================
+      # 10. Flutter 依赖
+      # ============================================================
+
+      - name: 安装 Flutter 依赖
+        run: flutter pub get
+
+      # ============================================================
+      # 11. Android 图标
+      # ============================================================
+
+      - name: 生成 Android 图标
+        run: dart run flutter_launcher_icons
+
+      # ============================================================
+      # 12. Flutter 静态检查
+      # ============================================================
+
+      - name: Flutter 静态检查
+        run: flutter analyze --no-fatal-infos
+
+      # ============================================================
+      # 13. 构建正式 APK
+      # ============================================================
+
+      - name: 构建正式签名 APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          flutter build apk \
+            --release \
+            --build-name "${{ inputs.version }}" \
+            --build-number "${{ inputs.build_number }}"
+
+      # ============================================================
+      # 14. 检查 APK
+      # ============================================================
+
+      - name: 检查 APK 是否生成
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "::error::没有找到 app-release.apk"
+            exit 1
+          fi
+
+          echo "APK 构建成功："
+          ls -lh "$APK"
+
+      # ============================================================
+      # 15. 验证包名和版本号
+      # ============================================================
+
+      - name: 验证 APK 信息
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          AAPT="$(
+            find "$ANDROID_HOME/build-tools" \
+              -type f \
+              -name aapt \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          if [ -z "$AAPT" ]; then
+            echo "::error::找不到 aapt"
+            exit 1
+          fi
+
+          BADGING="$("$AAPT" dump badging "$APK")"
+
+          PACKAGE="$(
+            echo "$BADGING" \
+              | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p"
+          )"
+
+          VERSION="$(
+            echo "$BADGING" \
+              | sed -n "s/^package: .*versionName='\\([^']*\\)'.*/\\1/p"
+          )"
+
+          echo "applicationId：$PACKAGE"
+          echo "versionName：$VERSION"
+
+          if [ "$PACKAGE" != "com.starshine.xingfanwu" ]; then
+            echo "::error::applicationId 不正确：$PACKAGE"
+            exit 1
+          fi
+
+          if [ "$VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::versionName 不正确"
+            echo "预期：$EXPECTED_VERSION"
+            echo "实际：$VERSION"
+            exit 1
+          fi
+
+          echo "APK 包名和版本号验证通过。"
+
+      # ============================================================
+      # 16. 验证 APK 的签名证书就是我们提供的 JKS
+      # ============================================================
+
+      - name: 验证正式签名
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          APKSIGNER="$(
+            find "$ANDROID_HOME/build-tools" \
+              -type f \
+              -name apksigner \
+              | sort -V \
+              | tail -n 1
+          )"
+
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::找不到 apksigner"
+            exit 1
+          fi
+
+          "$APKSIGNER" verify \
+            --verbose \
+            "$APK"
+
+          EXPECTED_SHA256="$(
+            keytool \
+              -list \
+              -v \
+              -keystore android/app/xingchen_release.jks \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -alias "$ANDROID_KEY_ALIAS" \
+            | awk -F'SHA256:' '
+                /SHA256:/ {
+                  gsub(/[:[:space:]]/, "", $2)
+                  print toupper($2)
+                  exit
+                }
+              '
+          )"
+
+          ACTUAL_SHA256="$(
+            "$APKSIGNER" verify \
+              --print-certs \
+              "$APK" \
+            | awk -F': ' '
+                /certificate SHA-256 digest/ {
+                  gsub(/[:[:space:]]/, "", $2)
+                  print toupper($2)
+                  exit
+                }
+              '
+          )"
+
+          if [ -z "$EXPECTED_SHA256" ]; then
+            echo "::error::无法读取 JKS SHA-256"
+            exit 1
+          fi
+
+          if [ -z "$ACTUAL_SHA256" ]; then
+            echo "::error::无法读取 APK 签名 SHA-256"
+            exit 1
+          fi
+
+          echo "JKS 证书 SHA-256："
+          echo "$EXPECTED_SHA256"
+
+          echo "APK 签名 SHA-256："
+          echo "$ACTUAL_SHA256"
+
+          if [ "$EXPECTED_SHA256" != "$ACTUAL_SHA256" ]; then
+            echo "::error::APK 签名和你的 JKS 不一致"
+            exit 1
+          fi
+
+          echo ""
+          echo "正式签名验证成功。"
+          echo "APK 确认使用的是你的 JKS。"
+
+      # ============================================================
+      # 17. 输出证书信息
+      # ============================================================
+
+      - name: 显示签名证书信息
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          keytool \
+            -list \
+            -v \
+            -keystore android/app/xingchen_release.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            | grep -E \
+              "Alias name:|Owner:|Issuer:|Valid from:|SHA1:|SHA256:" \
+            || true
+
+      # ============================================================
+      # 18. 重命名 APK
+      # ============================================================
+
+      - name: 重命名 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SOURCE="build/app/outputs/flutter-apk/app-release.apk"
+
+          OUTPUT="build/app/outputs/flutter-apk/XingFanWu-v${{ inputs.version }}-release.apk"
+
+          cp "$SOURCE" "$OUTPUT"
+
+          echo "最终 APK："
+          ls -lh "$OUTPUT"
+
+      # ============================================================
+      # 19. 计算 APK SHA-256
+      # ============================================================
+
+      - name: 计算 APK SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="build/app/outputs/flutter-apk/XingFanWu-v${{ inputs.version }}-release.apk"
+
+          echo "APK SHA-256："
+          sha256sum "$APK"
+
+      # ============================================================
+      # 20. 上传 Artifact
+      # ============================================================
+
+      - name: 上传正式 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: XingFanWu-${{ inputs.version }}-android-release
+          path: build/app/outputs/flutter-apk/XingFanWu-v${{ inputs.version }}-release.apk
+          if-no-files-found: error
+          retention-days: 30
