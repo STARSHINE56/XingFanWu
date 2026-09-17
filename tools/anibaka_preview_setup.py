@@ -331,8 +331,7 @@ def patch_pubspec():
 
     if not missing:
         log(
-            "AniBaka assets "
-            "已配置"
+            "AniBaka assets 已配置"
         )
         return
 
@@ -419,9 +418,11 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
   void dispose() {
     _ruleSearchController.dispose();
     _keywordController.dispose();
+
     _client.close(
       force: true,
     );
+
     super.dispose();
   }
 
@@ -472,16 +473,19 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       setState(() {
         _rules = rules;
-        _selectedRule =
-            rules.isEmpty
-                ? null
-                : rules.firstWhere(
-                    (rule) =>
-                        rule.searchRequest !=
-                        null,
-                    orElse:
-                        () => rules.first,
-                  );
+
+        if (rules.isEmpty) {
+          _selectedRule = null;
+        } else {
+          _selectedRule =
+              rules.firstWhere(
+            (rule) =>
+                rule.searchRequest !=
+                null,
+            orElse: () =>
+                rules.first,
+          );
+        }
 
         _loading = false;
         _error = null;
@@ -555,7 +559,9 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     String value,
   ) {
     final direct =
-        Uri.tryParse(value);
+        Uri.tryParse(
+      value,
+    );
 
     if (direct != null &&
         direct.hasScheme) {
@@ -586,7 +592,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     }
 
     final keyword =
-        _keywordController.text
+        _keywordController
+            .text
             .trim();
 
     if (keyword.isEmpty) {
@@ -603,6 +610,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         requestInfo.url.isEmpty) {
       setState(() {
         _results = const [];
+
         _searchMessage =
             '这条规则没有发现可直接执行的 '
             'fetch 搜索入口。\n'
@@ -876,17 +884,24 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
           for (final child
               in value.values) {
-            walk(child);
+            walk(
+              child,
+            );
           }
-        } else if (value is List) {
+        } else if (value
+            is List) {
           for (final child
               in value) {
-            walk(child);
+            walk(
+              child,
+            );
           }
         }
       }
 
-      walk(decoded);
+      walk(
+        decoded,
+      );
 
       final results =
           <_AniBakaSearchResult>[];
@@ -981,7 +996,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       if (value != null) {
         final text =
-            value.toString()
+            value
+                .toString()
                 .trim();
 
         if (text.isNotEmpty) {
@@ -1003,20 +1019,23 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
     final anchorPattern =
         RegExp(
-      r'''<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</a>''',
+      r"""<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</a>""",
       caseSensitive: false,
     );
 
     for (final match
         in anchorPattern
-            .allMatches(html)) {
+            .allMatches(
+          html,
+        )) {
       final href =
           match.group(1)
                   ?.trim() ??
               '';
 
       final inner =
-          match.group(2) ?? '';
+          match.group(2) ??
+              '';
 
       if (href.isEmpty) {
         continue;
@@ -1124,18 +1143,22 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
     final loosePattern =
         RegExp(
-      r'''href\s*=\s*["']([^"']*(?:detail|voddetail)[^"']*)["'][^>]*>([\s\S]{0,500}?)</a>''',
+      r"""href\s*=\s*["']([^"']*(?:detail|voddetail)[^"']*)["'][^>]*>([\s\S]{0,500}?)</a>""",
       caseSensitive: false,
     );
 
     for (final match
         in loosePattern
-            .allMatches(html)) {
+            .allMatches(
+          html,
+        )) {
       final href =
-          match.group(1) ?? '';
+          match.group(1) ??
+              '';
 
       final inner =
-          match.group(2) ?? '';
+          match.group(2) ??
+              '';
 
       final title =
           _stripHtml(
@@ -1170,12 +1193,14 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     final pattern =
         RegExp(
       '$attribute'
-      r'''\s*=\s*["']([^"']+)["']''',
+      r"""\s*=\s*["']([^"']+)["']""",
       caseSensitive: false,
     );
 
     return pattern
-            .firstMatch(html)
+            .firstMatch(
+              html,
+            )
             ?.group(1)
             ?.trim() ??
         '';
@@ -1256,7 +1281,9 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         value.startsWith(
           'https://',
         ) ||
-        value.startsWith('/')) {
+        value.startsWith(
+          '/',
+        )) {
       return _resolveTextUrl(
         rule,
         value,
@@ -1313,13 +1340,18 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     final seen =
         <String>{};
 
-    for (final item in input) {
+    for (final item
+        in input) {
       final key =
           '${item.title}|'
           '${item.detail}';
 
-      if (seen.add(key)) {
-        output.add(item);
+      if (seen.add(
+        key,
+      )) {
+        output.add(
+          item,
+        );
       }
     }
 
@@ -1352,12 +1384,16 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       );
 
       final decoded =
-          jsonDecode(raw);
+          jsonDecode(
+        raw,
+      );
 
       final formatted =
           const JsonEncoder.withIndent(
         '  ',
-      ).convert(decoded);
+      ).convert(
+        decoded,
+      );
 
       if (!mounted) {
         return;
@@ -1640,7 +1676,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
             ),
             DropdownButtonFormField<
                 _AniBakaRule>(
-              initialValue: rule,
+              value: rule,
               isExpanded: true,
               decoration:
                   const InputDecoration(
@@ -2077,8 +2113,10 @@ class _AniBakaSearchRequest {
 
   final String url;
   final String method;
+
   final Map<String, String>
       headers;
+
   final String body;
 
   factory _AniBakaSearchRequest.fromMap(
@@ -2332,8 +2370,7 @@ def verify():
 
 def main():
     log(
-        "开始生成 AniBaka "
-        "搜索测试版"
+        "开始生成 AniBaka 搜索测试版"
     )
 
     prepare_assets()
@@ -2344,8 +2381,7 @@ def main():
     verify()
 
     log(
-        "AniBaka 搜索测试版"
-        "生成完成"
+        "AniBaka 搜索测试版生成完成"
     )
 
 
