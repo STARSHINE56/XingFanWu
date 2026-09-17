@@ -62,7 +62,6 @@ def find_fetch_request(search):
 
             if isinstance(url, str):
                 return {
-                    "op": "fetch",
                     "url": url,
                     "method": str(
                         item.get(
@@ -103,7 +102,7 @@ def find_fetch_request(search):
     return None
 
 
-def collect_search_ops(value):
+def collect_ops(value):
     result = []
 
     if isinstance(value, dict):
@@ -114,26 +113,20 @@ def collect_search_ops(value):
 
         for child in value.values():
             result.extend(
-                collect_search_ops(
-                    child
-                )
+                collect_ops(child)
             )
 
     elif isinstance(value, list):
         for child in value:
             result.extend(
-                collect_search_ops(
-                    child
-                )
+                collect_ops(child)
             )
 
     return result
 
 
 def prepare_assets():
-    log(
-        "准备 AniBaka 规则资源"
-    )
+    log("准备 AniBaka 规则")
 
     if not ANIBAKA_SOURCE.exists():
         raise FileNotFoundError(
@@ -153,9 +146,7 @@ def prepare_assets():
     rules = []
 
     for source_file in sorted(
-        ANIBAKA_SOURCE.glob(
-            "*.json"
-        )
+        ANIBAKA_SOURCE.glob("*.json")
     ):
         if (
             source_file.name
@@ -199,7 +190,7 @@ def prepare_assets():
             [],
         )
 
-        search_request = (
+        request = (
             find_fetch_request(
                 search
             )
@@ -207,9 +198,7 @@ def prepare_assets():
 
         search_ops = list(
             dict.fromkeys(
-                collect_search_ops(
-                    search
-                )
+                collect_ops(search)
             )
         )
 
@@ -256,12 +245,17 @@ def prepare_assets():
                         "",
                     )
                 ),
+                "useWebview": bool(
+                    data.get(
+                        "useWebview",
+                        False,
+                    )
+                ),
+                "headers": headers,
                 "file":
                     source_file.name,
-                "headers":
-                    headers,
                 "searchRequest":
-                    search_request,
+                    request,
                 "searchOps":
                     search_ops,
             }
@@ -269,7 +263,7 @@ def prepare_assets():
 
     manifest = {
         "format":
-            "xingfanwu-anibaka-search-preview/2",
+            "xingfanwu-anibaka-preview/3",
         "count":
             len(rules),
         "rules":
@@ -288,34 +282,30 @@ def prepare_assets():
         encoding="utf-8",
     )
 
-    log(
-        f"已识别 {len(rules)} 条规则"
+    webview_count = sum(
+        1
+        for rule in rules
+        if rule["useWebview"]
     )
 
-    searchable = [
-        item
-        for item in rules
-        if item.get(
-            "searchRequest"
-        )
-    ]
+    log(
+        f"识别到 {len(rules)} 条规则"
+    )
 
     log(
-        f"其中 {len(searchable)} 条"
-        "发现直接 HTTP 搜索入口"
+        f"其中 {webview_count} 条"
+        "要求 WebView"
     )
 
 
 def patch_pubspec():
-    require_file(
-        PUBSPEC
-    )
+    require_file(PUBSPEC)
 
     text = PUBSPEC.read_text(
         encoding="utf-8"
     )
 
-    lines = [
+    asset_lines = [
         "    - assets/anibaka/\n",
         (
             "    - "
@@ -323,32 +313,84 @@ def patch_pubspec():
         ),
     ]
 
-    missing = [
+    missing_assets = [
         line
-        for line in lines
+        for line in asset_lines
         if line not in text
     ]
 
-    if not missing:
-        log(
-            "AniBaka assets 已配置"
+    if missing_assets:
+        marker = "  assets:\n"
+
+        if marker not in text:
+            raise RuntimeError(
+                "pubspec.yaml 找不到 "
+                "flutter assets"
+            )
+
+        text = text.replace(
+            marker,
+            marker
+            + "".join(
+                missing_assets
+            ),
+            1,
         )
-        return
 
-    marker = "  assets:\n"
-
-    if marker not in text:
-        raise RuntimeError(
-            "pubspec.yaml 中"
-            "找不到 assets"
-        )
-
-    text = text.replace(
-        marker,
-        marker
-        + "".join(missing),
-        1,
+    dependency_line = (
+        "  flutter_inappwebview: "
+        "^6.1.5\n"
     )
+
+    if (
+        "  flutter_inappwebview:"
+        not in text
+    ):
+        marker = (
+            "  flutter_inappwebview_"
+            "platform_interface:"
+        )
+
+        index = text.find(marker)
+
+        if index != -1:
+            line_start = (
+                text.rfind(
+                    "\n",
+                    0,
+                    index,
+                )
+                + 1
+            )
+
+            text = (
+                text[:line_start]
+                + dependency_line
+                + text[line_start:]
+            )
+
+            log(
+                "已临时加入 "
+                "flutter_inappwebview"
+            )
+        else:
+            flutter_dep = (
+                "  flutter:\n"
+                "    sdk: flutter\n"
+            )
+
+            if flutter_dep not in text:
+                raise RuntimeError(
+                    "找不到 dependencies "
+                    "中的 flutter"
+                )
+
+            text = text.replace(
+                flutter_dep,
+                flutter_dep
+                + dependency_line,
+                1,
+            )
 
     PUBSPEC.write_text(
         text,
@@ -358,15 +400,18 @@ def patch_pubspec():
 
 def write_anibaka_page():
     log(
-        "生成 AniBaka 搜索测试页面"
+        "生成 AniBaka "
+        "HTTP + WebView 搜索页面"
     )
 
     content = r'''
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
 
 class AniBakaPreviewPage extends StatefulWidget {
@@ -380,15 +425,15 @@ class AniBakaPreviewPage extends StatefulWidget {
 }
 
 class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
-  final TextEditingController _ruleSearchController =
-      TextEditingController();
-
   final TextEditingController _keywordController =
       TextEditingController(
     text: '葬送的芙莉莲',
   );
 
-  final HttpClient _client = HttpClient();
+  final TextEditingController _ruleFilterController =
+      TextEditingController();
+
+  final HttpClient _httpClient = HttpClient();
 
   List<_AniBakaRule> _rules = const [];
   List<_AniBakaSearchResult> _results = const [];
@@ -399,16 +444,16 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
   bool _searching = false;
 
   String? _error;
-  String? _searchMessage;
-  String? _lastRequestUrl;
+  String? _message;
+  String? _requestUrl;
 
   @override
   void initState() {
     super.initState();
 
-    _client.connectionTimeout =
+    _httpClient.connectionTimeout =
         const Duration(
-      seconds: 15,
+      seconds: 20,
     );
 
     _loadRules();
@@ -416,10 +461,10 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
   @override
   void dispose() {
-    _ruleSearchController.dispose();
     _keywordController.dispose();
+    _ruleFilterController.dispose();
 
-    _client.close(
+    _httpClient.close(
       force: true,
     );
 
@@ -447,24 +492,21 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       if (rawRules is! List) {
         throw const FormatException(
-          'manifest 缺少 rules',
+          'manifest 没有 rules',
         );
       }
 
       final rules =
           <_AniBakaRule>[];
 
-      for (final item
-          in rawRules) {
-        if (item is! Map) {
-          continue;
+      for (final item in rawRules) {
+        if (item is Map) {
+          rules.add(
+            _AniBakaRule.fromMap(
+              item,
+            ),
+          );
         }
-
-        rules.add(
-          _AniBakaRule.fromMap(
-            item,
-          ),
-        );
       }
 
       if (!mounted) {
@@ -474,14 +516,12 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       setState(() {
         _rules = rules;
 
-        if (rules.isEmpty) {
-          _selectedRule = null;
-        } else {
+        if (rules.isNotEmpty) {
           _selectedRule =
               rules.firstWhere(
             (rule) =>
-                rule.searchRequest !=
-                null,
+                rule.searchRequest
+                    != null,
             orElse: () =>
                 rules.first,
           );
@@ -506,7 +546,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
   List<_AniBakaRule>
       get _visibleRules {
     final query =
-        _ruleSearchController
+        _ruleFilterController
             .text
             .trim()
             .toLowerCase();
@@ -559,9 +599,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     String value,
   ) {
     final direct =
-        Uri.tryParse(
-      value,
-    );
+        Uri.tryParse(value);
 
     if (direct != null &&
         direct.hasScheme) {
@@ -597,25 +635,22 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
             .trim();
 
     if (keyword.isEmpty) {
-      _showMessage(
+      _snack(
         '请输入番剧名称',
       );
       return;
     }
 
-    final requestInfo =
+    final request =
         rule.searchRequest;
 
-    if (requestInfo == null ||
-        requestInfo.url.isEmpty) {
+    if (request == null ||
+        request.url.isEmpty) {
       setState(() {
         _results = const [];
-
-        _searchMessage =
-            '这条规则没有发现可直接执行的 '
-            'fetch 搜索入口。\n'
-            '它可能使用了专用搜索操作，'
-            '后续兼容层再补。';
+        _message =
+            '当前规则没有识别到 '
+            'fetch 搜索入口';
       });
 
       return;
@@ -624,145 +659,50 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     setState(() {
       _searching = true;
       _results = const [];
-      _searchMessage = null;
-      _lastRequestUrl = null;
+      _message = null;
+      _requestUrl = null;
     });
 
     try {
-      final requestUrl =
+      final rawUrl =
           _replaceTemplate(
-        requestInfo.url,
+        request.url,
         keyword,
       );
 
       final uri =
           _resolveUri(
         rule,
-        requestUrl,
+        rawUrl,
       );
 
       if (uri == null ||
           !uri.hasScheme) {
         throw FormatException(
-          '搜索地址无效：'
-          '$requestUrl',
+          '无效搜索地址：$rawUrl',
         );
       }
 
-      _lastRequestUrl =
+      _requestUrl =
           uri.toString();
 
-      final method =
-          requestInfo.method
-              .toUpperCase();
+      String body;
 
-      HttpClientRequest request;
-
-      if (method == 'POST') {
-        request =
-            await _client.postUrl(
+      if (rule.useWebview) {
+        body =
+            await _fetchWithWebView(
+          rule,
+          request,
           uri,
+          keyword,
         );
       } else {
-        request =
-            await _client.getUrl(
+        body =
+            await _fetchWithHttp(
+          rule,
+          request,
           uri,
-        );
-      }
-
-      final headers =
-          <String, String>{};
-
-      headers.addAll(
-        rule.headers,
-      );
-
-      headers.addAll(
-        requestInfo.headers,
-      );
-
-      headers.putIfAbsent(
-        'User-Agent',
-        () =>
-            'Mozilla/5.0 '
-            '(Linux; Android 14) '
-            'AppleWebKit/537.36 '
-            '(KHTML, like Gecko) '
-            'Chrome/140.0.0.0 '
-            'Mobile Safari/537.36',
-      );
-
-      headers.putIfAbsent(
-        'Accept',
-        () => '*/*',
-      );
-
-      if (rule.baseUrl.isNotEmpty) {
-        headers.putIfAbsent(
-          'Referer',
-          () => rule.baseUrl,
-        );
-      }
-
-      for (final entry
-          in headers.entries) {
-        request.headers.set(
-          entry.key,
-          _replaceTemplate(
-            entry.value,
-            keyword,
-          ),
-        );
-      }
-
-      if (method == 'POST') {
-        var body =
-            requestInfo.body;
-
-        if (body.isEmpty) {
-          body =
-              'wd=${Uri.encodeQueryComponent(keyword)}';
-        }
-
-        request.write(
-          _replaceTemplate(
-            body,
-            keyword,
-          ),
-        );
-      }
-
-      final response =
-          await request.close();
-
-      final bytes =
-          await response.fold<
-              List<int>>(
-        <int>[],
-        (
-          previous,
-          element,
-        ) {
-          previous.addAll(
-            element,
-          );
-          return previous;
-        },
-      );
-
-      final body =
-          _decodeBody(
-        bytes,
-      );
-
-      if (response.statusCode <
-              200 ||
-          response.statusCode >=
-              400) {
-        throw HttpException(
-          'HTTP '
-          '${response.statusCode}',
-          uri: uri,
+          keyword,
         );
       }
 
@@ -780,30 +720,33 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         );
       }
 
+      final cleaned =
+          _deduplicate(
+        results,
+      );
+
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _results =
-            _deduplicate(
-          results,
-        );
-
+        _results = cleaned;
         _searching = false;
 
-        if (_results.isEmpty) {
-          _searchMessage =
-              '请求成功，但当前兼容器'
-              '没有从页面中识别到结果。\n\n'
-              'HTTP ${response.statusCode}\n'
-              '返回 ${bytes.length} 字节\n\n'
-              '规则搜索操作：'
+        if (cleaned.isEmpty) {
+          _message =
+              '页面读取成功，但暂时'
+              '没有解析出搜索结果。\n\n'
+              '执行方式：'
+              '${rule.useWebview ? 'WebView' : 'HTTP'}\n'
+              '搜索操作：'
               '${rule.searchOps.join(' → ')}';
         } else {
-          _searchMessage =
+          _message =
               '搜索成功：'
-              '${_results.length} 条结果';
+              '${cleaned.length} 条结果\n'
+              '执行方式：'
+              '${rule.useWebview ? 'WebView' : 'HTTP'}';
         }
       });
     } catch (error) {
@@ -814,15 +757,150 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       setState(() {
         _searching = false;
         _results = const [];
-        _searchMessage =
-            '搜索失败：$error';
+
+        _message =
+            '搜索失败：$error\n\n'
+            '执行方式：'
+            '${rule.useWebview ? 'WebView' : 'HTTP'}';
       });
     }
   }
 
-  String _decodeBody(
-    List<int> bytes,
+  Map<String, String> _makeHeaders(
+    _AniBakaRule rule,
+    _AniBakaSearchRequest request,
+    String keyword,
   ) {
+    final headers =
+        <String, String>{};
+
+    headers.addAll(
+      rule.headers,
+    );
+
+    headers.addAll(
+      request.headers,
+    );
+
+    headers.putIfAbsent(
+      'User-Agent',
+      () =>
+          'Mozilla/5.0 '
+          '(Linux; Android 14) '
+          'AppleWebKit/537.36 '
+          '(KHTML, like Gecko) '
+          'Chrome/140.0.0.0 '
+          'Mobile Safari/537.36',
+    );
+
+    headers.putIfAbsent(
+      'Accept',
+      () =>
+          'text/html,application/xhtml+xml,'
+          'application/xml;q=0.9,image/avif,'
+          'image/webp,*/*;q=0.8',
+    );
+
+    if (rule.baseUrl.isNotEmpty) {
+      headers.putIfAbsent(
+        'Referer',
+        () => rule.baseUrl,
+      );
+    }
+
+    return headers.map(
+      (key, value) =>
+          MapEntry(
+        key,
+        _replaceTemplate(
+          value,
+          keyword,
+        ),
+      ),
+    );
+  }
+
+  Future<String> _fetchWithHttp(
+    _AniBakaRule rule,
+    _AniBakaSearchRequest requestInfo,
+    Uri uri,
+    String keyword,
+  ) async {
+    final method =
+        requestInfo.method
+            .toUpperCase();
+
+    HttpClientRequest request;
+
+    if (method == 'POST') {
+      request =
+          await _httpClient
+              .postUrl(uri);
+    } else {
+      request =
+          await _httpClient
+              .getUrl(uri);
+    }
+
+    final headers =
+        _makeHeaders(
+      rule,
+      requestInfo,
+      keyword,
+    );
+
+    for (final entry
+        in headers.entries) {
+      request.headers.set(
+        entry.key,
+        entry.value,
+      );
+    }
+
+    if (method == 'POST') {
+      var body =
+          requestInfo.body;
+
+      if (body.isEmpty) {
+        body =
+            'wd=${Uri.encodeQueryComponent(keyword)}';
+      }
+
+      request.write(
+        _replaceTemplate(
+          body,
+          keyword,
+        ),
+      );
+    }
+
+    final response =
+        await request.close();
+
+    final bytes =
+        await response.fold<
+            List<int>>(
+      <int>[],
+      (
+        output,
+        value,
+      ) {
+        output.addAll(value);
+        return output;
+      },
+    );
+
+    if (response.statusCode <
+            200 ||
+        response.statusCode >=
+            400) {
+      throw HttpException(
+        'HTTP '
+        '${response.statusCode}',
+        uri: uri,
+      );
+    }
+
     try {
       return utf8.decode(
         bytes,
@@ -834,6 +912,121 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     }
   }
 
+  Future<String> _fetchWithWebView(
+    _AniBakaRule rule,
+    _AniBakaSearchRequest requestInfo,
+    Uri uri,
+    String keyword,
+  ) async {
+    if (requestInfo.method
+            .toUpperCase() !=
+        'GET') {
+      throw UnsupportedError(
+        '当前 WebView 测试版'
+        '暂只支持 GET 搜索',
+      );
+    }
+
+    final completer =
+        Completer<String>();
+
+    HeadlessInAppWebView?
+        headlessWebView;
+
+    final headers =
+        _makeHeaders(
+      rule,
+      requestInfo,
+      keyword,
+    );
+
+    final userAgent =
+        headers['User-Agent'];
+
+    headlessWebView =
+        HeadlessInAppWebView(
+      initialUrlRequest:
+          URLRequest(
+        url: WebUri(
+          uri.toString(),
+        ),
+        headers: headers,
+      ),
+      initialSettings:
+          InAppWebViewSettings(
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+        databaseEnabled: true,
+        clearCache: false,
+        cacheEnabled: true,
+        useShouldOverrideUrlLoading:
+            false,
+        userAgent: userAgent,
+        mediaPlaybackRequiresUserGesture:
+            true,
+      ),
+      onLoadStop:
+          (
+        controller,
+        loadedUrl,
+      ) async {
+        if (completer.isCompleted) {
+          return;
+        }
+
+        await Future<void>.delayed(
+          const Duration(
+            milliseconds: 1800,
+          ),
+        );
+
+        try {
+          final result =
+              await controller
+                  .evaluateJavascript(
+            source:
+                'document.documentElement.outerHTML',
+          );
+
+          final html =
+              result?.toString() ??
+                  '';
+
+          if (html.isNotEmpty &&
+              !completer.isCompleted) {
+            completer.complete(
+              html,
+            );
+          }
+        } catch (error) {
+          if (!completer.isCompleted) {
+            completer.completeError(
+              error,
+            );
+          }
+        }
+      },
+    );
+
+    await headlessWebView.run();
+
+    try {
+      return await completer.future
+          .timeout(
+        const Duration(
+          seconds: 35,
+        ),
+        onTimeout: () {
+          throw TimeoutException(
+            'WebView 加载超时',
+          );
+        },
+      );
+    } finally {
+      await headlessWebView.dispose();
+    }
+  }
+
   List<_AniBakaSearchResult>
       _parseJsonResults(
     String body,
@@ -842,12 +1035,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     final trimmed =
         body.trimLeft();
 
-    if (!trimmed.startsWith(
-          '{',
-        ) &&
-        !trimmed.startsWith(
-          '[',
-        )) {
+    if (!trimmed.startsWith('{') &&
+        !trimmed.startsWith('[')) {
       return const [];
     }
 
@@ -858,11 +1047,9 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       final maps =
           <Map<dynamic, dynamic>>[];
 
-      void walk(
-        dynamic value,
-      ) {
+      void walk(dynamic value) {
         if (value is Map) {
-          final hasName =
+          final hasTitle =
               value.containsKey(
                     'name',
                   ) ||
@@ -871,44 +1058,32 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                   ) ||
                   value.containsKey(
                     'vod_name',
-                  ) ||
-                  value.containsKey(
-                    'video_name',
                   );
 
-          if (hasName) {
-            maps.add(
-              value,
-            );
+          if (hasTitle) {
+            maps.add(value);
           }
 
           for (final child
               in value.values) {
-            walk(
-              child,
-            );
+            walk(child);
           }
-        } else if (value
-            is List) {
+        } else if (value is List) {
           for (final child
               in value) {
-            walk(
-              child,
-            );
+            walk(child);
           }
         }
       }
 
-      walk(
-        decoded,
-      );
+      walk(decoded);
 
       final results =
           <_AniBakaSearchResult>[];
 
       for (final item in maps) {
         final title =
-            _firstText(
+            _firstValue(
           item,
           const [
             'name',
@@ -923,7 +1098,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         }
 
         final image =
-            _firstText(
+            _firstValue(
           item,
           const [
             'pic',
@@ -931,36 +1106,19 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
             'cover',
             'vod_pic',
             'poster',
-            'thumb',
           ],
         );
 
-        var url =
-            _firstText(
+        final detail =
+            _firstValue(
           item,
           const [
             'url',
-            'link',
             'href',
+            'link',
             'detailUrl',
-            'detail_url',
           ],
         );
-
-        final id =
-            _firstText(
-          item,
-          const [
-            'id',
-            'vod_id',
-            'video_id',
-          ],
-        );
-
-        if (url.isEmpty &&
-            id.isNotEmpty) {
-          url = id;
-        }
 
         results.add(
           _AniBakaSearchResult(
@@ -971,11 +1129,10 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               image,
             ),
             detail:
-                _resolveDetail(
+                _resolveTextUrl(
               rule,
-              url,
+              detail,
             ),
-            subtitle: id,
           ),
         );
       }
@@ -986,7 +1143,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     }
   }
 
-  String _firstText(
+  String _firstValue(
     Map<dynamic, dynamic> map,
     List<String> keys,
   ) {
@@ -1025,9 +1182,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
     for (final match
         in anchorPattern
-            .allMatches(
-          html,
-        )) {
+            .allMatches(html)) {
       final href =
           match.group(1)
                   ?.trim() ??
@@ -1069,14 +1224,14 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       }
 
       var title =
-          _extractAttribute(
+          _attribute(
         inner,
         'title',
       );
 
       if (title.isEmpty) {
         title =
-            _extractAttribute(
+            _attribute(
           inner,
           'alt',
         );
@@ -1089,23 +1244,22 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         );
       }
 
-      title =
-          title.trim();
+      title = title.trim();
 
       if (title.isEmpty ||
-          title.length > 120) {
+          title.length > 150) {
         continue;
       }
 
       var image =
-          _extractAttribute(
+          _attribute(
         inner,
         'data-src',
       );
 
       if (image.isEmpty) {
         image =
-            _extractAttribute(
+            _attribute(
           inner,
           'data-original',
         );
@@ -1113,7 +1267,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       if (image.isEmpty) {
         image =
-            _extractAttribute(
+            _attribute(
           inner,
           'src',
         );
@@ -1132,53 +1286,6 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
             rule,
             href,
           ),
-          subtitle: href,
-        ),
-      );
-    }
-
-    if (results.isNotEmpty) {
-      return results;
-    }
-
-    final loosePattern =
-        RegExp(
-      r"""href\s*=\s*["']([^"']*(?:detail|voddetail)[^"']*)["'][^>]*>([\s\S]{0,500}?)</a>""",
-      caseSensitive: false,
-    );
-
-    for (final match
-        in loosePattern
-            .allMatches(
-          html,
-        )) {
-      final href =
-          match.group(1) ??
-              '';
-
-      final inner =
-          match.group(2) ??
-              '';
-
-      final title =
-          _stripHtml(
-        inner,
-      ).trim();
-
-      if (title.isEmpty) {
-        continue;
-      }
-
-      results.add(
-        _AniBakaSearchResult(
-          title: title,
-          image: '',
-          detail:
-              _resolveTextUrl(
-            rule,
-            href,
-          ),
-          subtitle: href,
         ),
       );
     }
@@ -1186,21 +1293,19 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     return results;
   }
 
-  String _extractAttribute(
+  String _attribute(
     String html,
-    String attribute,
+    String name,
   ) {
     final pattern =
         RegExp(
-      '$attribute'
+      '$name'
       r"""\s*=\s*["']([^"']+)["']""",
       caseSensitive: false,
     );
 
     return pattern
-            .firstMatch(
-              html,
-            )
+            .firstMatch(html)
             ?.group(1)
             ?.trim() ??
         '';
@@ -1267,44 +1372,6 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     );
   }
 
-  String _resolveDetail(
-    _AniBakaRule rule,
-    String value,
-  ) {
-    if (value.isEmpty) {
-      return '';
-    }
-
-    if (value.startsWith(
-          'http://',
-        ) ||
-        value.startsWith(
-          'https://',
-        ) ||
-        value.startsWith(
-          '/',
-        )) {
-      return _resolveTextUrl(
-        rule,
-        value,
-      );
-    }
-
-    final numeric =
-        int.tryParse(
-      value,
-    );
-
-    if (numeric != null) {
-      return value;
-    }
-
-    return _resolveTextUrl(
-      rule,
-      value,
-    );
-  }
-
   String _resolveTextUrl(
     _AniBakaRule rule,
     String value,
@@ -1319,13 +1386,10 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       return value;
     }
 
-    final uri =
-        _resolveUri(
-      rule,
-      value,
-    );
-
-    return uri?.toString() ??
+    return _resolveUri(
+          rule,
+          value,
+        )?.toString() ??
         value;
   }
 
@@ -1334,24 +1398,19 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     List<_AniBakaSearchResult>
         input,
   ) {
-    final output =
-        <_AniBakaSearchResult>[];
-
     final seen =
         <String>{};
 
-    for (final item
-        in input) {
+    final output =
+        <_AniBakaSearchResult>[];
+
+    for (final item in input) {
       final key =
           '${item.title}|'
           '${item.detail}';
 
-      if (seen.add(
-        key,
-      )) {
-        output.add(
-          item,
-        );
+      if (seen.add(key)) {
+        output.add(item);
       }
     }
 
@@ -1360,7 +1419,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         .toList();
   }
 
-  void _showMessage(
+  void _snack(
     String message,
   ) {
     ScaffoldMessenger.of(
@@ -1377,89 +1436,73 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
   Future<void> _showRuleJson(
     _AniBakaRule rule,
   ) async {
-    try {
-      final raw =
-          await rootBundle.loadString(
-        'assets/anibaka/rules/${rule.file}',
-      );
+    final raw =
+        await rootBundle.loadString(
+      'assets/anibaka/rules/${rule.file}',
+    );
 
-      final decoded =
-          jsonDecode(
-        raw,
-      );
+    final pretty =
+        const JsonEncoder.withIndent(
+      '  ',
+    ).convert(
+      jsonDecode(raw),
+    );
 
-      final formatted =
-          const JsonEncoder.withIndent(
-        '  ',
-      ).convert(
-        decoded,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      await showDialog<void>(
-        context: context,
-        builder: (
-          dialogContext,
-        ) {
-          return AlertDialog(
-            title: Text(
-              rule.name,
-            ),
-            content: SizedBox(
-              width: 720,
-              child:
-                  SingleChildScrollView(
-                child:
-                    SelectableText(
-                  formatted,
-                ),
-              ),
-            ),
-            actions: [
-              TextButton.icon(
-                onPressed:
-                    () async {
-                  await Clipboard
-                      .setData(
-                    ClipboardData(
-                      text:
-                          formatted,
-                    ),
-                  );
-                },
-                icon:
-                    const Icon(
-                  Icons
-                      .content_copy_rounded,
-                ),
-                label:
-                    const Text(
-                  '复制 JSON',
-                ),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(
-                    dialogContext,
-                  ).pop();
-                },
-                child:
-                    const Text(
-                  '关闭',
-                ),
-              ),
-            ],
-          );
-        },
-      );
-    } catch (error) {
-      _showMessage(
-        '读取规则失败：$error',
-      );
+    if (!mounted) {
+      return;
     }
+
+    await showDialog<void>(
+      context: context,
+      builder: (
+        dialogContext,
+      ) {
+        return AlertDialog(
+          title: Text(
+            rule.name,
+          ),
+          content: SizedBox(
+            width: 720,
+            child:
+                SingleChildScrollView(
+              child: SelectableText(
+                pretty,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed:
+                  () async {
+                await Clipboard
+                    .setData(
+                  ClipboardData(
+                    text: pretty,
+                  ),
+                );
+              },
+              icon: const Icon(
+                Icons
+                    .content_copy_rounded,
+              ),
+              label: const Text(
+                '复制',
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(
+                  dialogContext,
+                ).pop();
+              },
+              child: const Text(
+                '关闭',
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -1497,15 +1540,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding:
-              const EdgeInsets.all(
-            24,
-          ),
-          child: SelectableText(
-            'AniBaka 加载失败\n\n'
-            '$_error',
-          ),
+        child: SelectableText(
+          '加载失败\n\n$_error',
         ),
       );
     }
@@ -1523,24 +1559,24 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         const SizedBox(
           height: 16,
         ),
-        _buildSearchPanel(),
-        const SizedBox(
-          height: 16,
-        ),
-        if (_searchMessage !=
-            null)
+        _buildSearchCard(),
+        if (_message != null) ...[
+          const SizedBox(
+            height: 12,
+          ),
           Card(
             child: Padding(
               padding:
-                  const EdgeInsets
-                      .all(16),
-              child:
-                  SelectableText(
-                _searchMessage!,
+                  const EdgeInsets.all(
+                16,
+              ),
+              child: SelectableText(
+                _message!,
               ),
             ),
           ),
-        if (_lastRequestUrl !=
+        ],
+        if (_requestUrl !=
             null) ...[
           const SizedBox(
             height: 8,
@@ -1549,8 +1585,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
             child: ListTile(
               leading:
                   const Icon(
-                Icons
-                    .link_rounded,
+                Icons.link_rounded,
               ),
               title:
                   const Text(
@@ -1558,31 +1593,32 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               ),
               subtitle:
                   SelectableText(
-                _lastRequestUrl!,
+                _requestUrl!,
               ),
             ),
           ),
         ],
-        const SizedBox(
-          height: 16,
-        ),
-        if (_results.isNotEmpty)
+        if (_results
+            .isNotEmpty) ...[
+          const SizedBox(
+            height: 20,
+          ),
           _buildResults(),
+        ],
         const SizedBox(
           height: 24,
         ),
-        _buildRuleSection(),
+        _buildRuleList(),
       ],
     );
   }
 
   Widget _buildHeader() {
-    final searchable =
+    final webviewCount =
         _rules
             .where(
               (rule) =>
-                  rule.searchRequest !=
-                  null,
+                  rule.useWebview,
             )
             .length;
 
@@ -1597,27 +1633,12 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               CrossAxisAlignment
                   .start,
           children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons
-                      .travel_explore_rounded,
-                  size: 30,
-                ),
-                const SizedBox(
-                  width: 12,
-                ),
-                Expanded(
-                  child: Text(
-                    'AniBaka 搜索兼容测试',
-                    style:
-                        Theme.of(
-                      context,
-                    ).textTheme
-                            .titleLarge,
-                  ),
-                ),
-              ],
+            Text(
+              'AniBaka 双引擎搜索',
+              style:
+                  Theme.of(context)
+                      .textTheme
+                      .titleLarge,
             ),
             const SizedBox(
               height: 12,
@@ -1627,21 +1648,16 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               '${_rules.length}',
             ),
             Text(
-              '已发现直接搜索入口：'
-              '$searchable',
+              'WebView 规则：'
+              '$webviewCount',
             ),
             const SizedBox(
               height: 8,
             ),
-            Text(
-              '当前阶段支持直接 HTTP '
-              '搜索、常见 JSON 搜索结果以及'
-              '常见 HTML 详情链接提取。'
-              '这还不是完整 anx-rule/2 '
-              '解释器。',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall,
+            const Text(
+              '普通规则使用 HTTP，'
+              'useWebview 规则自动使用 '
+              'WebView 获取最终页面。',
             ),
           ],
         ),
@@ -1649,7 +1665,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     );
   }
 
-  Widget _buildSearchPanel() {
+  Widget _buildSearchCard() {
     final rule =
         _selectedRule;
 
@@ -1664,16 +1680,6 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               CrossAxisAlignment
                   .stretch,
           children: [
-            Text(
-              '搜索测试',
-              style:
-                  Theme.of(context)
-                      .textTheme
-                      .titleMedium,
-            ),
-            const SizedBox(
-              height: 12,
-            ),
             DropdownButtonFormField<
                 _AniBakaRule>(
               value: rule,
@@ -1691,11 +1697,9 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                         DropdownMenuItem(
                       value: item,
                       child: Text(
-                        item.searchRequest ==
-                                null
-                            ? '${item.name} '
-                                '（暂不支持搜索）'
-                            : item.name,
+                        item.useWebview
+                            ? '${item.name} · WebView'
+                            : '${item.name} · HTTP',
                         overflow:
                             TextOverflow
                                 .ellipsis,
@@ -1710,9 +1714,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                       value;
                   _results =
                       const [];
-                  _searchMessage =
-                      null;
-                  _lastRequestUrl =
+                  _message =
                       null;
                 });
               },
@@ -1733,15 +1735,12 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                   const InputDecoration(
                 labelText:
                     '番剧名称',
-                hintText:
-                    '例如：葬送的芙莉莲',
-                prefixIcon:
-                    Icon(
-                  Icons
-                      .search_rounded,
-                ),
                 border:
                     OutlineInputBorder(),
+                prefixIcon:
+                    Icon(
+                  Icons.search_rounded,
+                ),
               ),
             ),
             const SizedBox(
@@ -1774,15 +1773,15 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
             ),
             if (rule != null) ...[
               const SizedBox(
-                height: 12,
+                height: 10,
+              ),
+              Text(
+                '执行方式：'
+                '${rule.useWebview ? 'WebView' : 'HTTP'}',
               ),
               Text(
                 '搜索操作：'
                 '${rule.searchOps.join(' → ')}',
-                style:
-                    Theme.of(context)
-                        .textTheme
-                        .bodySmall,
               ),
             ],
           ],
@@ -1829,46 +1828,20 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                               context,
                               error,
                               stackTrace,
-                            ) {
-                              return const Icon(
-                                Icons
-                                    .broken_image_outlined,
-                              );
-                            },
+                            ) =>
+                                    const Icon(
+                              Icons
+                                  .broken_image_outlined,
+                            ),
                           ),
               ),
               title: Text(
                 item.title,
               ),
-              subtitle: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start,
-                children: [
-                  if (item.subtitle
-                      .isNotEmpty)
-                    Text(
-                      item.subtitle,
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                    ),
-                  if (item.detail
-                      .isNotEmpty)
-                    Text(
-                      item.detail,
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                      style:
-                          Theme.of(
-                        context,
-                      ).textTheme
-                              .bodySmall,
-                    ),
-                ],
+              subtitle:
+                  SelectableText(
+                item.detail,
+                maxLines: 2,
               ),
               trailing:
                   const Icon(
@@ -1876,8 +1849,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                     .chevron_right_rounded,
               ),
               onTap: () {
-                _showMessage(
-                  '下一阶段会接入详情页和剧集解析',
+                _snack(
+                  '下一阶段接入详情和剧集',
                 );
               },
             ),
@@ -1890,7 +1863,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
     );
   }
 
-  Widget _buildRuleSection() {
+  Widget _buildRuleList() {
     final visible =
         _visibleRules;
 
@@ -1910,7 +1883,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         ),
         TextField(
           controller:
-              _ruleSearchController,
+              _ruleFilterController,
           onChanged: (_) {
             setState(() {});
           },
@@ -1918,12 +1891,13 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               const InputDecoration(
             hintText:
                 '筛选规则',
-            prefixIcon:
-                Icon(
-              Icons.filter_alt_outlined,
-            ),
             border:
                 OutlineInputBorder(),
+            prefixIcon:
+                Icon(
+              Icons
+                  .filter_alt_outlined,
+            ),
           ),
         ),
         const SizedBox(
@@ -1936,43 +1910,23 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
               leading:
                   CircleAvatar(
                 child: Icon(
-                  rule.searchRequest ==
-                          null
+                  rule.useWebview
                       ? Icons
-                          .extension_off_outlined
+                          .language_rounded
                       : Icons
-                          .extension_rounded,
+                          .http_rounded,
                 ),
               ),
               title: Text(
                 rule.name,
               ),
-              subtitle: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start,
-                children: [
-                  Text(
-                    rule.baseUrl,
-                    maxLines: 1,
-                    overflow:
-                        TextOverflow
-                            .ellipsis,
-                  ),
-                  Text(
-                    rule.searchOps
-                        .join(' → '),
-                    maxLines: 2,
-                    overflow:
-                        TextOverflow
-                            .ellipsis,
-                  ),
-                ],
+              subtitle: Text(
+                '${rule.useWebview ? 'WebView' : 'HTTP'}'
+                ' · '
+                '${rule.searchOps.join(' → ')}',
               ),
               trailing:
                   IconButton(
-                tooltip:
-                    '查看 JSON',
                 onPressed: () {
                   _showRuleJson(
                     rule,
@@ -1980,8 +1934,7 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                 },
                 icon:
                     const Icon(
-                  Icons
-                      .code_rounded,
+                  Icons.code_rounded,
                 ),
               ),
               onTap: () {
@@ -2009,6 +1962,7 @@ class _AniBakaRule {
     required this.description,
     required this.iconUrl,
     required this.file,
+    required this.useWebview,
     required this.headers,
     required this.searchOps,
     required this.searchRequest,
@@ -2020,6 +1974,8 @@ class _AniBakaRule {
   final String description;
   final String iconUrl;
   final String file;
+
+  final bool useWebview;
 
   final Map<String, String>
       headers;
@@ -2068,7 +2024,8 @@ class _AniBakaRule {
 
     return _AniBakaRule(
       id:
-          map['id']?.toString() ??
+          map['id']
+                  ?.toString() ??
               '',
       name:
           map['name']
@@ -2090,6 +2047,9 @@ class _AniBakaRule {
           map['file']
                   ?.toString() ??
               '',
+      useWebview:
+          map['useWebview'] ==
+              true,
       headers: headers,
       searchOps: ops,
       searchRequest:
@@ -2161,13 +2121,11 @@ class _AniBakaSearchResult {
     required this.title,
     required this.image,
     required this.detail,
-    required this.subtitle,
   });
 
   final String title;
   final String image;
   final String detail;
-  final String subtitle;
 }
 '''.lstrip()
 
@@ -2202,12 +2160,14 @@ def patch_plugin_module():
 
         if marker not in text:
             raise RuntimeError(
-                "找不到 flutter_modular import"
+                "找不到 "
+                "flutter_modular import"
             )
 
         text = text.replace(
             marker,
-            marker + import_line,
+            marker
+            + import_line,
             1,
         )
 
@@ -2284,7 +2244,7 @@ def patch_plugin_view():
                                     minimumSize: const Size(120, 48)),
                                 onPressed: () => context.pushNamed(
                                     '/settings/plugin/anibaka-preview'),
-                                icon: const Icon(Icons.travel_explore_rounded),
+                                icon: const Icon(Icons.language_rounded),
                                 label: const Text('AniBaka 搜索')),
 """
 
@@ -2331,7 +2291,7 @@ def verify():
 
     if not count:
         raise RuntimeError(
-            "没有识别到规则"
+            "没有 AniBaka 规则"
         )
 
     page_text = (
@@ -2340,13 +2300,18 @@ def verify():
         )
     )
 
-    if (
-        "AniBaka 搜索兼容测试"
-        not in page_text
-    ):
-        raise RuntimeError(
-            "搜索页面生成失败"
-        )
+    required = [
+        "HeadlessInAppWebView",
+        "useWebview",
+        "AniBaka 双引擎搜索",
+    ]
+
+    for keyword in required:
+        if keyword not in page_text:
+            raise RuntimeError(
+                f"缺少关键代码："
+                f"{keyword}"
+            )
 
     module_text = (
         PLUGIN_MODULE.read_text(
@@ -2363,14 +2328,15 @@ def verify():
         )
 
     log(
-        f"最终检查完成："
+        f"检查完成："
         f"{count} 条规则"
     )
 
 
 def main():
     log(
-        "开始生成 AniBaka 搜索测试版"
+        "开始生成 AniBaka "
+        "双引擎搜索测试版"
     )
 
     prepare_assets()
@@ -2381,7 +2347,8 @@ def main():
     verify()
 
     log(
-        "AniBaka 搜索测试版生成完成"
+        "AniBaka 双引擎"
+        "搜索测试版生成完成"
     )
 
 
