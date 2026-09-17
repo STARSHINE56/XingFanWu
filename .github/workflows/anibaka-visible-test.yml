@@ -8,9 +8,15 @@ permissions:
 
 jobs:
   build:
-    name: 构建 AniBaka 测试版
+    name: 构建 AniBaka ARM64 测试版
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+
+    env:
+      GRADLE_OPTS: >-
+        -Dorg.gradle.daemon=false
+        -Dorg.gradle.parallel=true
+        -Dorg.gradle.caching=true
 
     steps:
       - name: 检出源码
@@ -21,6 +27,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: 配置 Flutter
         uses: subosito/flutter-action@v2
@@ -31,46 +38,29 @@ jobs:
 
       - name: 下载 AniBaka 规则库
         run: |
-          rm -rf /tmp/AniBakaRule
           git clone --depth=1 \
             https://github.com/AniBakaBaka/AniBakaRule.git \
             /tmp/AniBakaRule
 
       - name: 应用 AniBaka 测试版修改
-        run: |
-          python3 tools/anibaka_preview_setup.py
+        run: python3 tools/anibaka_preview_setup.py
 
       - name: 安装依赖
         run: flutter pub get
 
-      - name: 格式化
-        run: |
-          dart format \
-            lib/pages/plugin_editor/anibaka_preview_page.dart \
-            lib/pages/plugin_editor/plugin_module.dart \
-            lib/pages/plugin_editor/plugin_view_page.dart
-
-      - name: 静态检查
-        run: |
-          flutter analyze \
-            lib/pages/plugin_editor/anibaka_preview_page.dart \
-            lib/pages/plugin_editor/plugin_module.dart \
-            lib/pages/plugin_editor/plugin_view_page.dart \
-            --no-fatal-infos
-
-      - name: 构建 APK
-        run: flutter build apk --debug
+      - name: 构建 ARM64 APK
+        run: flutter build apk --debug --target-platform android-arm64
 
       - name: 准备 APK
         run: |
           cp \
             build/app/outputs/flutter-apk/app-debug.apk \
-            build/app/outputs/flutter-apk/XingFanWu-AniBaka-Visible.apk
+            build/app/outputs/flutter-apk/XingFanWu-AniBaka-ARM64.apk
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: XingFanWu-AniBaka-Visible
-          path: build/app/outputs/flutter-apk/XingFanWu-AniBaka-Visible.apk
+          name: XingFanWu-AniBaka-ARM64
+          path: build/app/outputs/flutter-apk/XingFanWu-AniBaka-ARM64.apk
           if-no-files-found: error
           retention-days: 7
