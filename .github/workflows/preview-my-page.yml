@@ -29,10 +29,6 @@ jobs:
           channel: stable
           cache: true
 
-      # ============================================================
-      # 修改底部导航“我的”图标
-      # ============================================================
-
       - name: 修改我的导航图标
         shell: bash
         run: |
@@ -40,76 +36,62 @@ jobs:
 
           python3 <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("lib/pages/menu/menu.dart")
           text = path.read_text(encoding="utf-8")
 
-          old_portrait = """NavigationDestination(
-            selectedIcon: Icon(Icons.settings),
-            icon: Icon(Icons.settings),
-            label: '我的',
-          ),"""
+          portrait = re.compile(
+              r"""NavigationDestination\(\s*
+              selectedIcon:\s*Icon\(Icons\.settings\),\s*
+              icon:\s*Icon\(Icons\.settings(?:_outlined)?\),\s*
+              label:\s*'我的',\s*
+              \)""",
+              re.VERBOSE,
+          )
 
-          new_portrait = """NavigationDestination(
+          landscape = re.compile(
+              r"""NavigationRailDestination\(\s*
+              selectedIcon:\s*Icon\(Icons\.settings\),\s*
+              icon:\s*Icon\(Icons\.settings_outlined\),\s*
+              label:\s*Text\('我的'\),\s*
+              \)""",
+              re.VERBOSE,
+          )
+
+          text, portrait_count = portrait.subn(
+              """NavigationDestination(
             selectedIcon: Icon(Icons.person),
             icon: Icon(Icons.person_outline),
             label: '我的',
-          ),"""
+          )""",
+              text,
+              count=1,
+          )
 
-          old_landscape = """NavigationRailDestination(
-                  selectedIcon: Icon(Icons.settings),
-                  icon: Icon(Icons.settings_outlined),
-                  label: Text('我的'),
-                ),"""
-
-          new_landscape = """NavigationRailDestination(
+          text, landscape_count = landscape.subn(
+              """NavigationRailDestination(
                   selectedIcon: Icon(Icons.person),
                   icon: Icon(Icons.person_outline),
                   label: Text('我的'),
-                ),"""
-
-          if old_portrait not in text:
-              raise SystemExit(
-                  "没有找到竖屏“我的”导航代码，已停止，避免错误修改。"
-              )
-
-          if old_landscape not in text:
-              raise SystemExit(
-                  "没有找到横屏“我的”导航代码，已停止，避免错误修改。"
-              )
-
-          text = text.replace(
-              old_portrait,
-              new_portrait,
-              1,
-          )
-
-          text = text.replace(
-              old_landscape,
-              new_landscape,
-              1,
-          )
-
-          path.write_text(
+                )""",
               text,
-              encoding="utf-8",
+              count=1,
           )
 
+          if portrait_count != 1:
+              raise SystemExit(
+                  f"竖屏“我的”图标替换失败，匹配数量：{portrait_count}"
+              )
+
+          if landscape_count != 1:
+              raise SystemExit(
+                  f"横屏“我的”图标替换失败，匹配数量：{landscape_count}"
+              )
+
+          path.write_text(text, encoding="utf-8")
           print("我的导航图标修改完成")
           PY
-
-      # ============================================================
-      # 替换 MyPage
-      #
-      # 保留原项目：
-      # - Controller attach / detach
-      # - Observer
-      # - RouteVisibility
-      # - flutter_modular 路由
-      #
-      # 不写自定义页面切换动画
-      # 返回动画继续交给 Flutter / 上游路由系统
-      # ============================================================
 
       - name: 写入新版 MyPage
         shell: bash
@@ -144,16 +126,11 @@ jobs:
             @override
             void didChangeDependencies() {
               super.didChangeDependencies();
-
-              _setAttached(
-                !RouteVisibility.isCoveredOf(context),
-              );
+              _setAttached(!RouteVisibility.isCoveredOf(context));
             }
 
             @override
-            void didUpdateWidget(
-              covariant MyPage oldWidget,
-            ) {
+            void didUpdateWidget(covariant MyPage oldWidget) {
               super.didUpdateWidget(oldWidget);
 
               if (_attached &&
@@ -183,43 +160,20 @@ jobs:
               }
             }
 
-            void _open(
-              MyDestination destination,
-            ) {
+            void _open(MyDestination destination) {
               context.pushNamed(
                 switch (destination) {
-                  MyDestination.theme =>
-                    '/settings/theme',
-
-                  MyDestination.player =>
-                    '/settings/player',
-
-                  MyDestination.danmaku =>
-                    '/settings/danmaku/',
-
-                  MyDestination.rules =>
-                    '/settings/plugin/',
-
-                  MyDestination.history =>
-                    '/settings/history/',
-
-                  MyDestination.downloads =>
-                    '/settings/download/',
-
-                  MyDestination.sync =>
-                    '/settings/sync',
-
-                  MyDestination.storage =>
-                    '/settings/storage',
-
-                  MyDestination.update =>
-                    '/settings/update',
-
-                  MyDestination.settings =>
-                    '/settings/',
-
-                  MyDestination.about =>
-                    '/settings/about/',
+                  MyDestination.theme => '/settings/theme',
+                  MyDestination.player => '/settings/player',
+                  MyDestination.danmaku => '/settings/danmaku/',
+                  MyDestination.rules => '/settings/plugin/',
+                  MyDestination.history => '/settings/history/',
+                  MyDestination.downloads => '/settings/download/',
+                  MyDestination.sync => '/settings/sync',
+                  MyDestination.storage => '/settings/storage',
+                  MyDestination.update => '/settings/update',
+                  MyDestination.settings => '/settings/',
+                  MyDestination.about => '/settings/about/',
                 },
               );
             }
@@ -240,22 +194,18 @@ jobs:
                         ),
                   ),
                   actions: [
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        right: 6,
+                    IconButton(
+                      tooltip: '外观主题',
+                      icon: const Icon(
+                        Icons.dark_mode_outlined,
                       ),
-                      child: IconButton(
-                        tooltip: '外观主题',
-                        icon: const Icon(
-                          Icons.dark_mode_outlined,
-                        ),
-                        onPressed: () {
-                          context.pushNamed(
-                            '/settings/theme',
-                          );
-                        },
-                      ),
+                      onPressed: () {
+                        context.pushNamed(
+                          '/settings/theme',
+                        );
+                      },
                     ),
+                    const SizedBox(width: 4),
                   ],
                 ),
                 body: SafeArea(
@@ -264,12 +214,10 @@ jobs:
                   child: Observer(
                     builder: (context) {
                       return MySpaceView(
-                        stats:
-                            widget.controller.watchStats,
+                        stats: widget.controller.watchStats,
                         onOpen: _open,
                         onCheckUpdate: () {
-                          widget.controller
-                              .checkUpdate();
+                          widget.controller.checkUpdate();
                         },
                       );
                     },
@@ -279,26 +227,6 @@ jobs:
             }
           }
           DART
-
-      # ============================================================
-      # 新版我的页面
-      #
-      # 第一阶段稳定版：
-      #
-      # ✓ 真实观看统计
-      # ✓ 真实下载任务统计
-      # ✓ 使用现有设置页面
-      # ✓ 使用现有检查更新逻辑
-      # ✓ 响应式布局
-      #
-      # 暂时不加入：
-      #
-      # × 假的观看时长
-      # × 假的继续观看番剧
-      # × 假的稍后再看
-      #
-      # 等第一阶段 APK 稳定后再接真实数据。
-      # ============================================================
 
       - name: 写入新版我的页面布局
         shell: bash
@@ -333,461 +261,282 @@ jobs:
             });
 
             final WatchStats stats;
-
-            final ValueChanged<MyDestination>
-                onOpen;
-
+            final ValueChanged<MyDestination> onOpen;
             final VoidCallback onCheckUpdate;
 
             @override
             Widget build(BuildContext context) {
-              return LayoutBuilder(
-                builder: (
-                  context,
-                  constraints,
-                ) {
-                  final horizontal =
-                      constraints.maxWidth < 600
-                          ? 16.0
-                          : 28.0;
+              final width = MediaQuery.sizeOf(context).width;
+              final horizontal = width < 600 ? 16.0 : 28.0;
 
-                  return SingleChildScrollView(
-                    key: const PageStorageKey(
-                      'xingfanwu-my-page',
+              return SingleChildScrollView(
+                key: const PageStorageKey(
+                  'xingfanwu-my-page',
+                ),
+                padding: EdgeInsets.fromLTRB(
+                  horizontal,
+                  12,
+                  horizontal,
+                  32,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: 960,
                     ),
-                    padding: EdgeInsets.fromLTRB(
-                      horizontal,
-                      12,
-                      horizontal,
-                      32,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints:
-                            const BoxConstraints(
-                          maxWidth: 960,
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.stretch,
+                      children: [
+                        const _WelcomeCard(),
+
+                        const SizedBox(height: 14),
+
+                        _StatsCard(
+                          stats: stats,
                         ),
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment
-                                  .stretch,
-                          children: [
-                            const _WelcomeCard(),
 
-                            const SizedBox(
-                              height: 14,
-                            ),
+                        const SizedBox(height: 28),
 
-                            _StatsCard(
-                              stats: stats,
-                            ),
+                        const _SectionTitle(
+                          '我的内容',
+                        ),
 
-                            const SizedBox(
-                              height: 28,
-                            ),
+                        const SizedBox(height: 10),
 
-                            const _SectionTitle(
-                              title: '我的内容',
-                            ),
-
-                            const SizedBox(
-                              height: 10,
-                            ),
-
-                            _ActionCard(
-                              children: [
-                                _ActionEntry(
-                                  icon: Icons
-                                      .download_for_offline_rounded,
-                                  title: '离线下载',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .downloads,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon:
-                                      Icons.history_rounded,
-                                  title: '历史记录',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .history,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon:
-                                      Icons.favorite_rounded,
-                                  title: '我的追番',
-                                  onTap: () {
-                                    contextMessage(
-                                      context,
-                                      '追番内容可在底部“追番”页面查看',
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .extension_rounded,
-                                  title: '规则管理',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .rules,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(
-                              height: 26,
-                            ),
-
-                            const _SectionTitle(
-                              title: '内容管理',
-                            ),
-
-                            const SizedBox(
-                              height: 10,
-                            ),
-
-                            _ActionCard(
-                              children: [
-                                _ActionEntry(
-                                  icon:
-                                      Icons.sync_rounded,
-                                  title: '数据同步',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .sync,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .cloud_upload_outlined,
-                                  title: '同步备份',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .sync,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .folder_outlined,
-                                  title: '存储管理',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .storage,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .cleaning_services_outlined,
-                                  title: '缓存与日志',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .storage,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(
-                              height: 26,
-                            ),
-
-                            const _SectionTitle(
-                              title: '播放与显示',
-                            ),
-
-                            const SizedBox(
-                              height: 10,
-                            ),
-
-                            _ActionCard(
-                              children: [
-                                _ActionEntry(
-                                  icon: Icons
-                                      .play_circle_outline_rounded,
-                                  title: '播放设置',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .player,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .subtitles_rounded,
-                                  title: '弹幕设置',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .danmaku,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .palette_outlined,
-                                  title: '外观主题',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .theme,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon:
-                                      Icons.tune_rounded,
-                                  title: '播放偏好',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .player,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(
-                              height: 26,
-                            ),
-
-                            const _SectionTitle(
-                              title: '更多服务',
-                            ),
-
-                            const SizedBox(
-                              height: 10,
-                            ),
-
-                            _ActionCard(
-                              children: [
-                                _ActionEntry(
-                                  icon: Icons
-                                      .system_update_rounded,
-                                  title: '检查更新',
-                                  onTap:
-                                      onCheckUpdate,
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .update_rounded,
-                                  title: '更新设置',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .update,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .info_outline_rounded,
-                                  title: '关于星番屋',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .about,
-                                    );
-                                  },
-                                ),
-                                _ActionEntry(
-                                  icon: Icons
-                                      .settings_outlined,
-                                  title: '全部设置',
-                                  onTap: () {
-                                    onOpen(
-                                      MyDestination
-                                          .settings,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(
-                              height: 18,
-                            ),
-
-                            _MoreSettingsCard(
+                        _ActionGrid(
+                          entries: [
+                            _Entry(
+                              icon: Icons
+                                  .download_for_offline_rounded,
+                              title: '离线下载',
                               onTap: () {
                                 onOpen(
-                                  MyDestination
-                                      .settings,
+                                  MyDestination.downloads,
                                 );
                               },
                             ),
-
-                            const SizedBox(
-                              height: 22,
+                            _Entry(
+                              icon: Icons.history_rounded,
+                              title: '历史记录',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.history,
+                                );
+                              },
                             ),
-
-                            Text(
-                              '星番屋',
-                              textAlign:
-                                  TextAlign.center,
-                              style:
-                                  Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                        color:
-                                            Theme.of(
-                                          context,
-                                        )
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                      ),
+                            _Entry(
+                              icon: Icons.extension_rounded,
+                              title: '规则管理',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.rules,
+                                );
+                              },
+                            ),
+                            _Entry(
+                              icon: Icons.cloud_sync_rounded,
+                              title: '数据同步',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.sync,
+                                );
+                              },
                             ),
                           ],
                         ),
-                      ),
+
+                        const SizedBox(height: 26),
+
+                        const _SectionTitle(
+                          '播放与显示',
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        _ActionGrid(
+                          entries: [
+                            _Entry(
+                              icon: Icons
+                                  .play_circle_outline_rounded,
+                              title: '播放设置',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.player,
+                                );
+                              },
+                            ),
+                            _Entry(
+                              icon: Icons.subtitles_rounded,
+                              title: '弹幕设置',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.danmaku,
+                                );
+                              },
+                            ),
+                            _Entry(
+                              icon: Icons.palette_outlined,
+                              title: '外观主题',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.theme,
+                                );
+                              },
+                            ),
+                            _Entry(
+                              icon: Icons.folder_outlined,
+                              title: '存储管理',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.storage,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 26),
+
+                        const _SectionTitle(
+                          '更多服务',
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        _ActionGrid(
+                          entries: [
+                            _Entry(
+                              icon: Icons
+                                  .system_update_rounded,
+                              title: '检查更新',
+                              onTap: onCheckUpdate,
+                            ),
+                            _Entry(
+                              icon: Icons.update_rounded,
+                              title: '更新设置',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.update,
+                                );
+                              },
+                            ),
+                            _Entry(
+                              icon: Icons
+                                  .info_outline_rounded,
+                              title: '关于星番屋',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.about,
+                                );
+                              },
+                            ),
+                            _Entry(
+                              icon: Icons.settings_outlined,
+                              title: '全部设置',
+                              onTap: () {
+                                onOpen(
+                                  MyDestination.settings,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        _MoreSettingsCard(
+                          onTap: () {
+                            onOpen(
+                              MyDestination.settings,
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 22),
+
+                        Text(
+                          '星番屋',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
                     ),
-                  );
-                },
+                  ),
+                ),
               );
             }
           }
 
-          void contextMessage(
-            BuildContext context,
-            String message,
-          ) {
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(
-                SnackBar(
-                  content: Text(message),
-                  duration:
-                      const Duration(
-                    seconds: 2,
-                  ),
-                ),
-              );
-          }
-
-          class _WelcomeCard
-              extends StatelessWidget {
+          class _WelcomeCard extends StatelessWidget {
             const _WelcomeCard();
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
-              final theme =
-                  Theme.of(context);
-
-              final colors =
-                  theme.colorScheme;
+            Widget build(BuildContext context) {
+              final theme = Theme.of(context);
+              final colors = theme.colorScheme;
 
               return Material(
-                color:
-                    colors.primaryContainer,
-                borderRadius:
-                    BorderRadius.circular(
+                color: colors.primaryContainer,
+                borderRadius: BorderRadius.circular(
                   24,
                 ),
-                clipBehavior:
-                    Clip.antiAlias,
+                clipBehavior: Clip.antiAlias,
                 child: Stack(
                   children: [
                     Positioned(
-                      right: -55,
-                      top: -65,
+                      right: -48,
+                      top: -56,
                       child: Container(
-                        width: 170,
-                        height: 170,
-                        decoration:
-                            BoxDecoration(
-                          shape:
-                              BoxShape.circle,
-                          color: colors
-                              .primary
-                              .withValues(
+                        width: 150,
+                        height: 150,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: colors.primary.withValues(
                             alpha: 0.08,
                           ),
                         ),
                       ),
                     ),
-
-                    Positioned(
-                      right: -25,
-                      bottom: -75,
-                      child: Container(
-                        width: 150,
-                        height: 150,
-                        decoration:
-                            BoxDecoration(
-                          shape:
-                              BoxShape.circle,
-                          color: colors
-                              .tertiary
-                              .withValues(
-                            alpha: 0.07,
-                          ),
-                        ),
-                      ),
-                    ),
-
                     Padding(
-                      padding:
-                          const EdgeInsets
-                              .all(20),
+                      padding: const EdgeInsets.all(
+                        20,
+                      ),
                       child: Column(
                         crossAxisAlignment:
-                            CrossAxisAlignment
-                                .start,
+                            CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
                               Container(
                                 width: 44,
                                 height: 44,
-                                decoration:
-                                    BoxDecoration(
+                                decoration: BoxDecoration(
                                   borderRadius:
-                                      BorderRadius
-                                          .circular(
+                                      BorderRadius.circular(
                                     14,
                                   ),
-                                  color: colors
-                                      .primary
+                                  color: colors.primary
                                       .withValues(
                                     alpha: 0.12,
                                   ),
                                 ),
                                 alignment:
-                                    Alignment
-                                        .center,
+                                    Alignment.center,
                                 child: Icon(
                                   Icons
                                       .auto_awesome_rounded,
-                                  color:
-                                      colors.primary,
+                                  color: colors.primary,
                                 ),
                               ),
-
-                              const SizedBox(
-                                width: 12,
-                              ),
-
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   '星番屋',
@@ -805,11 +554,7 @@ jobs:
                               ),
                             ],
                           ),
-
-                          const SizedBox(
-                            height: 12,
-                          ),
-
+                          const SizedBox(height: 12),
                           Text(
                             '发现好番，享受每一次观看',
                             style: theme
@@ -820,22 +565,16 @@ jobs:
                                       .onPrimaryContainer,
                                 ),
                           ),
-
-                          const SizedBox(
-                            height: 13,
-                          ),
-
+                          const SizedBox(height: 12),
                           Text(
                             '今天也来看看喜欢的动漫吧 ✦',
                             style: theme
                                 .textTheme
                                 .labelMedium
                                 ?.copyWith(
-                                  color:
-                                      colors.primary,
+                                  color: colors.primary,
                                   fontWeight:
-                                      FontWeight
-                                          .w600,
+                                      FontWeight.w600,
                                 ),
                           ),
                         ],
@@ -847,8 +586,7 @@ jobs:
             }
           }
 
-          class _StatsCard
-              extends StatelessWidget {
+          class _StatsCard extends StatelessWidget {
             const _StatsCard({
               required this.stats,
             });
@@ -856,62 +594,49 @@ jobs:
             final WatchStats stats;
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
+            Widget build(BuildContext context) {
               final colors =
-                  Theme.of(context)
-                      .colorScheme;
+                  Theme.of(context).colorScheme;
 
               return Material(
-                color:
-                    colors.surfaceContainer,
-                borderRadius:
-                    BorderRadius.circular(
+                color: colors.surfaceContainer,
+                borderRadius: BorderRadius.circular(
                   20,
                 ),
                 child: Padding(
                   padding:
-                      const EdgeInsets
-                          .symmetric(
+                      const EdgeInsets.symmetric(
                     vertical: 16,
                   ),
                   child: Row(
                     children: [
                       Expanded(
-                        child: _StatItem(
+                        child: _Stat(
                           value:
                               '${stats.watchedBangumiCount}',
-                          label:
-                              '看过番剧',
+                          label: '看过番剧',
                         ),
                       ),
-
-                      _VerticalDivider(
-                        color: colors
-                            .outlineVariant,
+                      _Line(
+                        color:
+                            colors.outlineVariant,
                       ),
-
                       Expanded(
-                        child: _StatItem(
+                        child: _Stat(
                           value:
                               '${stats.watchedEpisodeCount}',
-                          label:
-                              '观看集数',
+                          label: '观看集数',
                         ),
                       ),
-
-                      _VerticalDivider(
-                        color: colors
-                            .outlineVariant,
+                      _Line(
+                        color:
+                            colors.outlineVariant,
                       ),
-
                       Expanded(
-                        child: _StatItem(
+                        child: _Stat(
                           value:
                               '${stats.downloadTaskCount}',
-                          label:
-                              '离线下载',
+                          label: '离线下载',
                         ),
                       ),
                     ],
@@ -921,9 +646,8 @@ jobs:
             }
           }
 
-          class _StatItem
-              extends StatelessWidget {
-            const _StatItem({
+          class _Stat extends StatelessWidget {
+            const _Stat({
               required this.value,
               required this.label,
             });
@@ -932,19 +656,14 @@ jobs:
             final String label;
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
-              final theme =
-                  Theme.of(context);
+            Widget build(BuildContext context) {
+              final theme = Theme.of(context);
 
               return Column(
-                mainAxisSize:
-                    MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   FittedBox(
-                    fit:
-                        BoxFit.scaleDown,
+                    fit: BoxFit.scaleDown,
                     child: Text(
                       value,
                       style: theme
@@ -952,20 +671,14 @@ jobs:
                           .headlineSmall
                           ?.copyWith(
                             fontWeight:
-                                FontWeight
-                                    .w800,
+                                FontWeight.w800,
                           ),
                     ),
                   ),
-
-                  const SizedBox(
-                    height: 3,
-                  ),
-
+                  const SizedBox(height: 3),
                   Text(
                     label,
-                    textAlign:
-                        TextAlign.center,
+                    textAlign: TextAlign.center,
                     style: theme
                         .textTheme
                         .labelMedium
@@ -980,18 +693,15 @@ jobs:
             }
           }
 
-          class _VerticalDivider
-              extends StatelessWidget {
-            const _VerticalDivider({
+          class _Line extends StatelessWidget {
+            const _Line({
               required this.color,
             });
 
             final Color color;
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
+            Widget build(BuildContext context) {
               return Container(
                 width: 1,
                 height: 38,
@@ -1002,33 +712,29 @@ jobs:
 
           class _SectionTitle
               extends StatelessWidget {
-            const _SectionTitle({
-              required this.title,
-            });
+            const _SectionTitle(
+              this.text,
+            );
 
-            final String title;
+            final String text;
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
+            Widget build(BuildContext context) {
               return Text(
-                title,
-                style:
-                    Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(
-                          fontWeight:
-                              FontWeight
-                                  .w800,
-                        ),
+                text,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(
+                      fontWeight:
+                          FontWeight.w800,
+                    ),
               );
             }
           }
 
-          class _ActionEntry {
-            const _ActionEntry({
+          class _Entry {
+            const _Entry({
               required this.icon,
               required this.title,
               required this.onTap,
@@ -1039,32 +745,27 @@ jobs:
             final VoidCallback onTap;
           }
 
-          class _ActionCard
+          class _ActionGrid
               extends StatelessWidget {
-            const _ActionCard({
-              required this.children,
+            const _ActionGrid({
+              required this.entries,
             });
 
-            final List<_ActionEntry>
-                children;
+            final List<_Entry> entries;
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
+            Widget build(BuildContext context) {
               final colors =
-                  Theme.of(context)
-                      .colorScheme;
+                  Theme.of(context).colorScheme;
 
               return Material(
-                color: colors
-                    .surfaceContainerLow,
+                color:
+                    colors.surfaceContainerLow,
                 borderRadius:
                     BorderRadius.circular(
                   22,
                 ),
-                clipBehavior:
-                    Clip.antiAlias,
+                clipBehavior: Clip.antiAlias,
                 child: LayoutBuilder(
                   builder: (
                     context,
@@ -1077,143 +778,116 @@ jobs:
                             : 4;
 
                     return GridView.builder(
-                      padding:
-                          const EdgeInsets
-                              .symmetric(
-                        horizontal: 6,
-                        vertical: 10,
-                      ),
                       shrinkWrap: true,
                       physics:
                           const NeverScrollableScrollPhysics(),
-                      itemCount:
-                          children.length,
+                      padding:
+                          const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 10,
+                      ),
+                      itemCount: entries.length,
                       gridDelegate:
                           SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount:
                             columns,
                         mainAxisExtent: 92,
-                        crossAxisSpacing:
-                            2,
-                        mainAxisSpacing:
-                            2,
+                        crossAxisSpacing: 2,
+                        mainAxisSpacing: 2,
                       ),
                       itemBuilder: (
                         context,
                         index,
                       ) {
-                        final item =
-                            children[index];
+                        final entry =
+                            entries[index];
 
-                        return _ActionButton(
-                          entry: item,
-                          index: index,
+                        final palette = [
+                          colors.primary,
+                          colors.secondary,
+                          colors.tertiary,
+                          colors.primary,
+                        ];
+
+                        final color =
+                            palette[
+                              index %
+                                  palette.length
+                            ];
+
+                        return InkWell(
+                          borderRadius:
+                              BorderRadius
+                                  .circular(
+                            18,
+                          ),
+                          onTap: entry.onTap,
+                          child: Padding(
+                            padding:
+                                const EdgeInsets
+                                    .symmetric(
+                              horizontal: 4,
+                              vertical: 7,
+                            ),
+                            child: Column(
+                              mainAxisAlignment:
+                                  MainAxisAlignment
+                                      .center,
+                              children: [
+                                Container(
+                                  width: 46,
+                                  height: 46,
+                                  decoration:
+                                      BoxDecoration(
+                                    borderRadius:
+                                        BorderRadius
+                                            .circular(
+                                      15,
+                                    ),
+                                    color: color
+                                        .withValues(
+                                      alpha: 0.10,
+                                    ),
+                                  ),
+                                  alignment:
+                                      Alignment
+                                          .center,
+                                  child: Icon(
+                                    entry.icon,
+                                    color: color,
+                                    size: 25,
+                                  ),
+                                ),
+                                const SizedBox(
+                                  height: 7,
+                                ),
+                                Text(
+                                  entry.title,
+                                  maxLines: 1,
+                                  overflow:
+                                      TextOverflow
+                                          .ellipsis,
+                                  textAlign:
+                                      TextAlign
+                                          .center,
+                                  style: Theme.of(
+                                    context,
+                                  )
+                                      .textTheme
+                                      .labelMedium
+                                      ?.copyWith(
+                                        fontWeight:
+                                            FontWeight
+                                                .w500,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
                         );
                       },
                     );
                   },
-                ),
-              );
-            }
-          }
-
-          class _ActionButton
-              extends StatelessWidget {
-            const _ActionButton({
-              required this.entry,
-              required this.index,
-            });
-
-            final _ActionEntry entry;
-            final int index;
-
-            @override
-            Widget build(
-              BuildContext context,
-            ) {
-              final colors =
-                  Theme.of(context)
-                      .colorScheme;
-
-              final iconColors = [
-                colors.primary,
-                colors.secondary,
-                colors.tertiary,
-                colors.primary,
-              ];
-
-              final color =
-                  iconColors[
-                    index %
-                        iconColors.length
-                  ];
-
-              return InkWell(
-                borderRadius:
-                    BorderRadius.circular(
-                  18,
-                ),
-                onTap: entry.onTap,
-                child: Padding(
-                  padding:
-                      const EdgeInsets
-                          .symmetric(
-                    horizontal: 4,
-                    vertical: 7,
-                  ),
-                  child: Column(
-                    mainAxisAlignment:
-                        MainAxisAlignment
-                            .center,
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration:
-                            BoxDecoration(
-                          color:
-                              color.withValues(
-                            alpha: 0.10,
-                          ),
-                          borderRadius:
-                              BorderRadius
-                                  .circular(
-                            15,
-                          ),
-                        ),
-                        alignment:
-                            Alignment.center,
-                        child: Icon(
-                          entry.icon,
-                          color: color,
-                          size: 25,
-                        ),
-                      ),
-
-                      const SizedBox(
-                        height: 7,
-                      ),
-
-                      Text(
-                        entry.title,
-                        maxLines: 1,
-                        overflow:
-                            TextOverflow
-                                .ellipsis,
-                        textAlign:
-                            TextAlign.center,
-                        style:
-                            Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                  fontWeight:
-                                      FontWeight
-                                          .w500,
-                                ),
-                      ),
-                    ],
-                  ),
                 ),
               );
             }
@@ -1228,14 +902,9 @@ jobs:
             final VoidCallback onTap;
 
             @override
-            Widget build(
-              BuildContext context,
-            ) {
-              final theme =
-                  Theme.of(context);
-
-              final colors =
-                  theme.colorScheme;
+            Widget build(BuildContext context) {
+              final theme = Theme.of(context);
+              final colors = theme.colorScheme;
 
               return Material(
                 color:
@@ -1244,14 +913,14 @@ jobs:
                     BorderRadius.circular(
                   20,
                 ),
-                clipBehavior:
-                    Clip.antiAlias,
+                clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: onTap,
                   child: Padding(
                     padding:
-                        const EdgeInsets
-                            .all(16),
+                        const EdgeInsets.all(
+                      16,
+                    ),
                     child: Row(
                       children: [
                         Container(
@@ -1259,20 +928,18 @@ jobs:
                           height: 46,
                           decoration:
                               BoxDecoration(
-                            color: colors
-                                .primary
-                                .withValues(
-                              alpha: 0.10,
-                            ),
                             borderRadius:
                                 BorderRadius
                                     .circular(
                               15,
                             ),
+                            color: colors.primary
+                                .withValues(
+                              alpha: 0.10,
+                            ),
                           ),
                           alignment:
-                              Alignment
-                                  .center,
+                              Alignment.center,
                           child: Icon(
                             Icons
                                 .settings_rounded,
@@ -1280,11 +947,9 @@ jobs:
                                 colors.primary,
                           ),
                         ),
-
                         const SizedBox(
                           width: 13,
                         ),
-
                         Expanded(
                           child: Column(
                             crossAxisAlignment:
@@ -1302,11 +967,9 @@ jobs:
                                               .w700,
                                     ),
                               ),
-
                               const SizedBox(
                                 height: 3,
                               ),
-
                               Text(
                                 '更多高级选项与应用偏好',
                                 style: theme
@@ -1320,7 +983,6 @@ jobs:
                             ],
                           ),
                         ),
-
                         Icon(
                           Icons
                               .chevron_right_rounded,
@@ -1336,10 +998,6 @@ jobs:
           }
           DART
 
-      # ============================================================
-      # 格式化
-      # ============================================================
-
       - name: 格式化修改文件
         run: |
           dart format \
@@ -1347,19 +1005,8 @@ jobs:
             lib/pages/my/my_page.dart \
             lib/pages/my/my_space_view.dart
 
-      # ============================================================
-      # 安装依赖
-      # ============================================================
-
       - name: 安装 Flutter 依赖
         run: flutter pub get
-
-      # ============================================================
-      # 先做针对性静态检查
-      #
-      # 比全项目 analyze 更快，
-      # 同时最容易发现本次修改的编译问题。
-      # ============================================================
 
       - name: 检查新版我的页面代码
         run: |
@@ -1369,20 +1016,8 @@ jobs:
             lib/pages/my/my_space_view.dart \
             --no-fatal-infos
 
-      # ============================================================
-      # 构建 Debug APK
-      #
-      # 不用正式签名 Secrets，
-      # 比 Release 更适合快速 UI 测试。
-      # ============================================================
-
       - name: 构建测试 APK
-        run: |
-          flutter build apk --debug
-
-      # ============================================================
-      # 检查产物
-      # ============================================================
+        run: flutter build apk --debug
 
       - name: 检查 APK
         shell: bash
@@ -1401,12 +1036,9 @@ jobs:
             "build/app/outputs/flutter-apk/XingFanWu-MyPage-Preview.apk"
 
           echo "新版我的页面 APK 构建成功"
+
           ls -lh \
             build/app/outputs/flutter-apk/XingFanWu-MyPage-Preview.apk
-
-      # ============================================================
-      # 上传 APK
-      # ============================================================
 
       - name: 上传测试 APK
         uses: actions/upload-artifact@v4
