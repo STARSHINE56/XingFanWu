@@ -139,58 +139,6 @@ jobs:
 
           echo "JKS 密码和 Alias 验证成功。"
 
-      - name: 配置 Gradle 正式签名
-        shell: python
-        run: |
-          from pathlib import Path
-
-          path = Path("android/app/build.gradle")
-
-          if not path.exists():
-              raise SystemExit("找不到 android/app/build.gradle")
-
-          content = path.read_text(encoding="utf-8")
-
-          signing_block = '''
-              signingConfigs {
-                  release {
-                      storeFile file("xingchen_release.jks")
-                      storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
-                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
-                  }
-              }
-
-          '''
-
-          if "signingConfigs {" not in content:
-              target = "android {"
-
-              if target not in content:
-                  raise SystemExit("build.gradle 中没有找到 android {")
-
-              content = content.replace(
-                  target,
-                  target + "\n" + signing_block,
-                  1,
-              )
-
-          if "signingConfig signingConfigs.debug" in content:
-              content = content.replace(
-                  "signingConfig signingConfigs.debug",
-                  "signingConfig signingConfigs.release",
-                  1,
-              )
-          elif "signingConfig signingConfigs.release" not in content:
-              raise SystemExit("没有找到 release signingConfig，停止构建")
-
-          path.write_text(
-              content,
-              encoding="utf-8",
-          )
-
-          print("Gradle 已临时切换为正式签名。")
-
       - name: 检查 Gradle 签名配置
         shell: bash
         run: |
@@ -209,6 +157,27 @@ jobs:
             exit 1
           fi
 
+          if ! grep -q \
+            'storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")' \
+            android/app/build.gradle; then
+            echo "::error::没有检测到正式签名 storePassword 配置"
+            exit 1
+          fi
+
+          if ! grep -q \
+            'keyAlias System.getenv("ANDROID_KEY_ALIAS")' \
+            android/app/build.gradle; then
+            echo "::error::没有检测到正式签名 keyAlias 配置"
+            exit 1
+          fi
+
+          if ! grep -q \
+            'keyPassword System.getenv("ANDROID_KEY_PASSWORD")' \
+            android/app/build.gradle; then
+            echo "::error::没有检测到正式签名 keyPassword 配置"
+            exit 1
+          fi
+
           echo "Gradle 正式签名配置检查通过。"
 
       - name: 安装 Flutter 依赖
@@ -216,6 +185,9 @@ jobs:
 
       - name: 生成 Android 图标
         run: dart run flutter_launcher_icons
+
+      - name: Flutter 单元测试
+        run: flutter test test/xingfanwu_update_test.dart
 
       - name: Flutter 静态检查
         run: flutter analyze --no-fatal-infos
