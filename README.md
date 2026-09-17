@@ -2,280 +2,190 @@
 
 # 星番屋
 
-<img src="assets/images/logo/logo_rounded.png" width="200" alt="星番屋 Logo">
+<img src="assets/images/logo/logo_rounded.png" width="180" alt="星番屋 Logo">
 
-<img src="https://img.shields.io/badge/Flutter-03A9F4?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter">
-<img src="https://img.shields.io/badge/Dart-00B4AB?style=for-the-badge&logo=dart&logoColor=white" alt="Dart">
-<img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
-<img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge" alt="GPL-3.0">
+<br>
 
-<p>
-星番屋是一款使用 Flutter 开发的番剧采集与在线观看应用，
-支持通过自定义规则获取番剧资源，并提供弹幕、历史记录、下载、超分辨率等功能。
-</p>
+<img src="https://img.shields.io/badge/Flutter-03A9F4?style=flat-square&logo=flutter&logoColor=white" alt="Flutter">
+<img src="https://img.shields.io/badge/Dart-0175C2?style=flat-square&logo=dart&logoColor=white" alt="Dart">
+<img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
+<img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="GPL-3.0">
 
-<p>
-本项目基于
-<a href="https://github.com/Predidit/Kazumi">Kazumi</a>
-进行二次开发。
-</p>
+<br><br>
+
+基于自定义规则的番剧采集、在线观看与弹幕播放器。
+
+**基于 [Kazumi](https://github.com/Predidit/Kazumi) 二次开发。**
 
 </div>
 
 ---
 
-## 项目说明
+## 项目介绍
 
-**星番屋** 基于开源项目
+**星番屋（XingFanWu）** 是基于开源项目
 [Kazumi](https://github.com/Predidit/Kazumi)
-进行二次开发。
+进行二次开发的 Android 番剧应用。
 
-在保留原项目主要功能的基础上，对 Android 版本进行了品牌化、应用标识、包名、更新渠道和发布流程等调整。
+在保留上游主要功能的基础上，对 Android 版本进行了品牌化以及部分使用体验调整。
 
-当前 Android 包名：
+当前项目主要信息：
 
-```text
-com.starshine.xingfanwu
+- 应用名称：**星番屋**
+- Android 包名：`com.starshine.xingfanwu`
+- 开发框架：Flutter
+- 主要平台：Android
+- 开源协议：GPL-3.0
+- 项目仓库：[STARSHINE56/XingFanWu](https://github.com/STARSHINE56/XingFanWu)
 
-当前项目仓库：
-
-https://github.com/STARSHINE56/XingFanWu
-
-
----
-
-支持平台
-
-当前星番屋主要维护：
-
-Android
-
-
-其他平台相关代码可能仍保留自上游 Kazumi，但目前不作为星番屋主要发布平台。
-
+> 星番屋与 Kazumi 原项目独立维护。
+>
+> 星番屋的 APK、版本发布和应用更新均由本仓库提供。
 
 ---
 
-功能
+## 功能
 
-[x] 自定义规则
-
-[x] 规则编辑器
-
-[x] 番剧目录
-
-[x] 番剧搜索
-
-[x] 番剧时间表
-
-[x] 番剧字幕
-
-[x] 分集播放
-
-[x] 内置视频播放器
-
-[x] 多视频源支持
-
-[x] 规则导入与分享
-
-[x] 硬件加速
-
-[x] 高刷新率适配
-
-[x] 追番列表
-
-[x] 番剧弹幕
-
-[x] 在线更新
-
-[x] 历史记录
-
-[x] 倍速播放
-
-[x] 配色方案
-
-[x] 跨设备同步
-
-[x] 无线投屏（DLNA）
-
-[x] 外部播放器
-
-[x] Anime4K 实时超分辨率
-
-[x] 一起看
-
-[x] 番剧下载
-
-[ ] 番剧更新提醒
-
-[ ] 更多功能持续完善中
+- [x] 自定义规则
+- [x] 规则编辑器
+- [x] 规则导入与分享
+- [x] 番剧目录
+- [x] 番剧搜索
+- [x] 番剧时间表
+- [x] 番剧字幕
+- [x] 分集播放
+- [x] 内置视频播放器
+- [x] 多视频源支持
+- [x] 番剧弹幕
+- [x] 历史记录
+- [x] 追番列表
+- [x] 番剧下载
+- [x] 倍速播放
+- [x] 硬件加速
+- [x] 高刷新率适配
+- [x] 配色方案
+- [x] 跨设备同步
+- [x] 无线投屏（DLNA）
+- [x] 外部播放器
+- [x] Anime4K 实时超分辨率
+- [x] SyncPlay 一起看
+- [x] 在线更新
+- [ ] 番剧更新提醒
+- [ ] 更多功能持续完善中
 
 ---
 
-自定义规则
+## 下载
+
+请通过本项目的 GitHub Releases 下载正式版本：
+
+### [前往星番屋 Releases](https://github.com/STARSHINE56/XingFanWu/releases/latest)
+
+正式版 APK 通常命名为：
+
+`XingFanWu-v版本号-release.apk`
+
+例如：
+
+`XingFanWu-v1.0.0-release.apk`
+
+建议仅从本项目 GitHub Releases 页面下载 APK。
+
+---
+
+## 在线更新
+
+星番屋使用本项目自己的 GitHub Releases 作为版本更新来源。
+
+应用会读取：
+
+`https://api.github.com/repos/STARSHINE56/XingFanWu/releases/latest`
+
+因此应用不会使用 Kazumi 官方 Release 作为星番屋的版本更新来源。
+
+---
+
+## 自定义规则
 
 星番屋继续兼容 Kazumi 的自定义规则机制。
 
-规则主要使用基于 XPath 语法的选择器实现。
+规则主要使用基于 `XPath` 语法的选择器实现，可用于添加不同的番剧视频来源。
 
-上游规则仓库：
+当前继续兼容 Kazumi 社区规则仓库：
 
-https://github.com/Predidit/KazumiRules
+[KazumiRules](https://github.com/Predidit/KazumiRules)
 
-规则仓库属于 Kazumi 生态资源，星番屋目前继续兼容使用。
-
+> 视频规则可能由第三方或社区成员维护。
+>
+> 星番屋本身不提供、上传或托管影视资源。
 
 ---
 
-常见问题
+## 常见问题
 
 <details>
-<summary>为什么少数番剧中会出现广告？</summary>星番屋本身不会主动在视频内容中插入广告。
+<summary><strong>为什么部分视频中会出现广告？</strong></summary>
 
-部分广告可能来自第三方视频源。
+<br>
 
-请不要相信视频源页面中的广告内容，并建议优先选择体验较好的视频源。
+星番屋本身不会主动向视频内容中插入广告。
 
-</details><details>
-<summary>为什么开启超分辨率后播放会变卡？</summary>Anime4K 实时超分辨率会增加 GPU 负载。
+部分广告可能来自第三方视频源，请不要轻信第三方页面中的广告内容。
 
-设备性能不足时，建议：
+</details>
 
-关闭超分辨率
+<details>
+<summary><strong>为什么开启超分辨率后播放会卡顿？</strong></summary>
 
-使用较低的超分辨率档位
+<br>
 
-优先对低分辨率视频源使用超分辨率
+Anime4K 实时超分辨率需要消耗较多 GPU 性能。
 
+如果设备性能不足，可以尝试关闭超分辨率或使用性能消耗较低的设置。
 
-</details><details>
-<summary>为什么播放视频时内存占用较高？</summary>播放器可能会将部分视频数据缓存到内存中，以改善播放和缓冲体验。
+</details>
 
-如果设备内存较少，可以尝试在播放设置中启用低内存相关选项。
+<details>
+<summary><strong>为什么播放时内存占用较高？</strong></summary>
 
-</details><details>
-<summary>为什么部分视频无法使用外部播放器播放？</summary>部分视频源存在 Referer、Cookie 或其他反盗链限制。
+<br>
 
-内置播放器可能能够处理这些请求条件，而第三方播放器不一定支持。
+播放器可能会缓存部分视频数据，以改善播放和缓冲体验。
 
-</details><details>
-<summary>为什么某些自定义规则可以搜索，但是无法播放？</summary>部分网站无法直接提取标准视频地址。
+如果设备内存较小，可以尝试启用低内存相关设置。
 
-可以尝试关闭规则中的“使用内置播放器”相关选项，让应用通过 WebView 兼容方式尝试播放。
+</details>
 
-如果内置播放器可以正常工作，通常建议优先使用内置播放器，以获得弹幕等完整功能。
+<details>
+<summary><strong>为什么部分视频无法使用外部播放器？</strong></summary>
+
+<br>
+
+部分第三方视频源可能存在 Referer、Cookie 或其他访问限制。
+
+内置播放器可能能够处理这些条件，而外部播放器不一定支持。
+
+</details>
+
+<details>
+<summary><strong>为什么某些规则可以搜索，但是无法播放？</strong></summary>
+
+<br>
+
+不同网站的实现方式存在差异。
+
+可以尝试切换规则中的播放器选项，或者使用 WebView 模式提高兼容性。
 
 </details>
 
 ---
 
-开源说明
+## 开发说明
 
-星番屋基于：
+本项目主要使用：
 
-Kazumi
-
-进行二次开发。
-
-感谢 Kazumi 原作者及所有贡献者提供的优秀开源项目。
-
-上游项目采用：
-
-GNU General Public License v3.0
-
-星番屋继续遵守 GPL-3.0 开源许可证。
-
-项目源代码保持公开，并保留上游项目所要求的许可证及版权信息。
-
-
----
-
-第三方项目
-
-星番屋及上游 Kazumi 使用或参考了多个优秀的开源项目和服务，包括但不限于：
-
-Kazumi
-
-XpathSelector
-
-弹弹play
-
-Bangumi
-
-Anime4K
-
-SyncPlay
-
-trace.moe
-
-media-kit
-
-avbuild
-
-Hive
-
-
-感谢这些项目及其开发者。
-
-
----
-
-免责声明
-
-本项目仅用于学习、研究以及管理用户本人有权访问的内容。
-
-使用者应自行确保其使用行为符合所在地法律法规、第三方服务条款以及相关版权规定。
-
-开发者不对第三方视频源提供的内容负责，也不对因使用本项目造成的直接或间接损失承担责任。
-
-请勿使用本项目侵犯任何个人、组织或版权方的合法权益。
-
-
----
-
-隐私
-
-星番屋不会主动收集用户个人数据，也不包含用于广告追踪的遥测组件。
-
-第三方视频源、Bangumi、弹弹play 以及其他外部服务拥有各自独立的隐私政策和服务条款。
-
-
----
-
-许可证
-
-GNU General Public License v3.0
-
-详细内容请查看：
-
-LICENSE
-
-
----
-
-致谢
-
-特别感谢：
-
-Kazumi 原作者及所有贡献者
-
-XpathSelector
-
-弹弹play
-
-Bangumi
-
-Anime4K
-
-SyncPlay
-
-trace.moe
-
-media-kit
-
-avbuild
-
-Hive
-
-
-以及所有为相关开源项目作出贡献的开发者。
+- Flutter
+- Dart
+- Android
+- Gradle
+- GitHub Actions
