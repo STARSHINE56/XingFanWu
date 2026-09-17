@@ -47,17 +47,103 @@ def require_file(path: Path):
         )
 
 
+def find_fetch_request(search):
+    if not isinstance(search, list):
+        return None
+
+    for item in search:
+        if not isinstance(item, dict):
+            continue
+
+        op = item.get("op")
+
+        if op == "fetch":
+            url = item.get("url")
+
+            if isinstance(url, str):
+                return {
+                    "op": "fetch",
+                    "url": url,
+                    "method": str(
+                        item.get(
+                            "method",
+                            "GET",
+                        )
+                    ).upper(),
+                    "headers": item.get(
+                        "headers",
+                        {},
+                    ),
+                    "body": item.get(
+                        "body",
+                        "",
+                    ),
+                }
+
+        if op == "first":
+            branches = item.get(
+                "branches",
+                [],
+            )
+
+            if isinstance(
+                branches,
+                list,
+            ):
+                for branch in branches:
+                    result = (
+                        find_fetch_request(
+                            branch
+                        )
+                    )
+
+                    if result:
+                        return result
+
+    return None
+
+
+def collect_search_ops(value):
+    result = []
+
+    if isinstance(value, dict):
+        op = value.get("op")
+
+        if isinstance(op, str):
+            result.append(op)
+
+        for child in value.values():
+            result.extend(
+                collect_search_ops(
+                    child
+                )
+            )
+
+    elif isinstance(value, list):
+        for child in value:
+            result.extend(
+                collect_search_ops(
+                    child
+                )
+            )
+
+    return result
+
+
 def prepare_assets():
-    log("准备 AniBaka 规则资源")
+    log(
+        "准备 AniBaka 规则资源"
+    )
 
     if not ANIBAKA_SOURCE.exists():
         raise FileNotFoundError(
-            "找不到 /tmp/AniBakaRule，"
-            "请确认工作流已经克隆 AniBakaRule"
+            "找不到 /tmp/AniBakaRule"
         )
 
     if ASSET_ROOT.exists():
-        shutil.rmtree(ASSET_ROOT)
+        shutil.rmtree(
+            ASSET_ROOT
+        )
 
     ASSET_RULES.mkdir(
         parents=True,
@@ -66,12 +152,15 @@ def prepare_assets():
 
     rules = []
 
-    json_files = sorted(
-        ANIBAKA_SOURCE.glob("*.json")
-    )
-
-    for source_file in json_files:
-        if source_file.name == "index.json":
+    for source_file in sorted(
+        ANIBAKA_SOURCE.glob(
+            "*.json"
+        )
+    ):
+        if (
+            source_file.name
+            == "index.json"
+        ):
             continue
 
         try:
@@ -82,26 +171,58 @@ def prepare_assets():
             )
         except Exception as error:
             log(
-                f"跳过无法解析的规则 "
-                f"{source_file.name}: {error}"
+                f"跳过 {source_file.name}: "
+                f"{error}"
             )
             continue
 
-        if not isinstance(data, dict):
+        if not isinstance(
+            data,
+            dict,
+        ):
             continue
 
-        if data.get("format") != "anx-rule/2":
+        if (
+            data.get("format")
+            != "anx-rule/2"
+        ):
             continue
-
-        target_file = (
-            ASSET_RULES
-            / source_file.name
-        )
 
         shutil.copy2(
             source_file,
-            target_file,
+            ASSET_RULES
+            / source_file.name,
         )
+
+        search = data.get(
+            "search",
+            [],
+        )
+
+        search_request = (
+            find_fetch_request(
+                search
+            )
+        )
+
+        search_ops = list(
+            dict.fromkeys(
+                collect_search_ops(
+                    search
+                )
+            )
+        )
+
+        headers = data.get(
+            "headers",
+            {},
+        )
+
+        if not isinstance(
+            headers,
+            dict,
+        ):
+            headers = {}
 
         rules.append(
             {
@@ -135,22 +256,30 @@ def prepare_assets():
                         "",
                     )
                 ),
-                "file": source_file.name,
+                "file":
+                    source_file.name,
+                "headers":
+                    headers,
+                "searchRequest":
+                    search_request,
+                "searchOps":
+                    search_ops,
             }
         )
 
     manifest = {
-        "format": "xingfanwu-anibaka-preview/1",
-        "count": len(rules),
-        "rules": rules,
+        "format":
+            "xingfanwu-anibaka-search-preview/2",
+        "count":
+            len(rules),
+        "rules":
+            rules,
     }
 
-    manifest_path = (
+    (
         ASSET_ROOT
         / "manifest.json"
-    )
-
-    manifest_path.write_text(
+    ).write_text(
         json.dumps(
             manifest,
             ensure_ascii=False,
@@ -160,41 +289,50 @@ def prepare_assets():
     )
 
     log(
-        f"已识别 {len(rules)} 条 "
-        "anx-rule/2 规则"
+        f"已识别 {len(rules)} 条规则"
     )
 
-    for rule in rules:
-        log(
-            f"{rule['name']} | "
-            f"{rule['baseUrl']}"
+    searchable = [
+        item
+        for item in rules
+        if item.get(
+            "searchRequest"
         )
+    ]
+
+    log(
+        f"其中 {len(searchable)} 条"
+        "发现直接 HTTP 搜索入口"
+    )
 
 
 def patch_pubspec():
-    log("修改 pubspec.yaml")
-
-    require_file(PUBSPEC)
+    require_file(
+        PUBSPEC
+    )
 
     text = PUBSPEC.read_text(
         encoding="utf-8"
     )
 
-    asset_root_line = (
-        "    - assets/anibaka/\n"
-    )
+    lines = [
+        "    - assets/anibaka/\n",
+        (
+            "    - "
+            "assets/anibaka/rules/\n"
+        ),
+    ]
 
-    asset_rules_line = (
-        "    - assets/anibaka/rules/\n"
-    )
+    missing = [
+        line
+        for line in lines
+        if line not in text
+    ]
 
-    if (
-        asset_root_line in text
-        and asset_rules_line in text
-    ):
+    if not missing:
         log(
-            "AniBaka assets 已存在，"
-            "跳过"
+            "AniBaka assets "
+            "已配置"
         )
         return
 
@@ -202,21 +340,14 @@ def patch_pubspec():
 
     if marker not in text:
         raise RuntimeError(
-            "pubspec.yaml 中没有找到 "
-            "flutter assets 配置"
+            "pubspec.yaml 中"
+            "找不到 assets"
         )
-
-    additions = ""
-
-    if asset_root_line not in text:
-        additions += asset_root_line
-
-    if asset_rules_line not in text:
-        additions += asset_rules_line
 
     text = text.replace(
         marker,
-        marker + additions,
+        marker
+        + "".join(missing),
         1,
     )
 
@@ -225,23 +356,15 @@ def patch_pubspec():
         encoding="utf-8",
     )
 
-    log(
-        "已加入 AniBaka assets"
-    )
-
 
 def write_anibaka_page():
     log(
-        "创建 AniBaka 规则预览页面"
-    )
-
-    ANIBAKA_PAGE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
+        "生成 AniBaka 搜索测试页面"
     )
 
     content = r'''
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -258,64 +381,87 @@ class AniBakaPreviewPage extends StatefulWidget {
 }
 
 class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
-  final TextEditingController _searchController =
+  final TextEditingController _ruleSearchController =
       TextEditingController();
 
+  final TextEditingController _keywordController =
+      TextEditingController(
+    text: '葬送的芙莉莲',
+  );
+
+  final HttpClient _client = HttpClient();
+
   List<_AniBakaRule> _rules = const [];
+  List<_AniBakaSearchResult> _results = const [];
+
+  _AniBakaRule? _selectedRule;
 
   bool _loading = true;
+  bool _searching = false;
+
   String? _error;
+  String? _searchMessage;
+  String? _lastRequestUrl;
 
   @override
   void initState() {
     super.initState();
+
+    _client.connectionTimeout =
+        const Duration(
+      seconds: 15,
+    );
+
     _loadRules();
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _ruleSearchController.dispose();
+    _keywordController.dispose();
+    _client.close(
+      force: true,
+    );
     super.dispose();
   }
 
   Future<void> _loadRules() async {
     try {
-      final raw = await rootBundle.loadString(
+      final raw =
+          await rootBundle.loadString(
         'assets/anibaka/manifest.json',
       );
 
-      final decoded = jsonDecode(raw);
+      final decoded =
+          jsonDecode(raw);
 
       if (decoded is! Map) {
         throw const FormatException(
-          'AniBaka manifest 格式错误',
+          'manifest 格式错误',
         );
       }
 
-      final rawRules = decoded['rules'];
+      final rawRules =
+          decoded['rules'];
 
       if (rawRules is! List) {
         throw const FormatException(
-          'AniBaka manifest 缺少 rules',
+          'manifest 缺少 rules',
         );
       }
 
-      final rules = <_AniBakaRule>[];
+      final rules =
+          <_AniBakaRule>[];
 
-      for (final item in rawRules) {
+      for (final item
+          in rawRules) {
         if (item is! Map) {
           continue;
         }
 
         rules.add(
-          _AniBakaRule(
-            id: item['id']?.toString() ?? '',
-            name: item['name']?.toString() ?? '',
-            baseUrl: item['baseUrl']?.toString() ?? '',
-            description:
-                item['description']?.toString() ?? '',
-            iconUrl: item['iconUrl']?.toString() ?? '',
-            file: item['file']?.toString() ?? '',
+          _AniBakaRule.fromMap(
+            item,
           ),
         );
       }
@@ -326,6 +472,17 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       setState(() {
         _rules = rules;
+        _selectedRule =
+            rules.isEmpty
+                ? null
+                : rules.firstWhere(
+                    (rule) =>
+                        rule.searchRequest !=
+                        null,
+                    orElse:
+                        () => rules.first,
+                  );
+
         _loading = false;
         _error = null;
       });
@@ -336,42 +493,866 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _error =
+            error.toString();
       });
     }
   }
 
-  List<_AniBakaRule> get _visibleRules {
-    final query = _searchController.text
-        .trim()
-        .toLowerCase();
+  List<_AniBakaRule>
+      get _visibleRules {
+    final query =
+        _ruleSearchController
+            .text
+            .trim()
+            .toLowerCase();
 
     if (query.isEmpty) {
       return _rules;
     }
 
-    return _rules.where((rule) {
-      return rule.name
-              .toLowerCase()
-              .contains(query) ||
-          rule.id
-              .toLowerCase()
-              .contains(query) ||
-          rule.baseUrl
-              .toLowerCase()
-              .contains(query);
-    }).toList();
+    return _rules.where(
+      (rule) {
+        return rule.name
+                .toLowerCase()
+                .contains(query) ||
+            rule.id
+                .toLowerCase()
+                .contains(query) ||
+            rule.baseUrl
+                .toLowerCase()
+                .contains(query);
+      },
+    ).toList();
+  }
+
+  String _replaceTemplate(
+    String input,
+    String keyword,
+  ) {
+    final encoded =
+        Uri.encodeComponent(
+      keyword,
+    );
+
+    return input
+        .replaceAll(
+          '{keyword}',
+          encoded,
+        )
+        .replaceAll(
+          '{keyword:raw}',
+          keyword,
+        )
+        .replaceAll(
+          '@keyword',
+          encoded,
+        );
+  }
+
+  Uri? _resolveUri(
+    _AniBakaRule rule,
+    String value,
+  ) {
+    final direct =
+        Uri.tryParse(value);
+
+    if (direct != null &&
+        direct.hasScheme) {
+      return direct;
+    }
+
+    final base =
+        Uri.tryParse(
+      rule.baseUrl,
+    );
+
+    if (base == null ||
+        !base.hasScheme) {
+      return direct;
+    }
+
+    return base.resolve(
+      value,
+    );
+  }
+
+  Future<void> _search() async {
+    final rule =
+        _selectedRule;
+
+    if (rule == null) {
+      return;
+    }
+
+    final keyword =
+        _keywordController.text
+            .trim();
+
+    if (keyword.isEmpty) {
+      _showMessage(
+        '请输入番剧名称',
+      );
+      return;
+    }
+
+    final requestInfo =
+        rule.searchRequest;
+
+    if (requestInfo == null ||
+        requestInfo.url.isEmpty) {
+      setState(() {
+        _results = const [];
+        _searchMessage =
+            '这条规则没有发现可直接执行的 '
+            'fetch 搜索入口。\n'
+            '它可能使用了专用搜索操作，'
+            '后续兼容层再补。';
+      });
+
+      return;
+    }
+
+    setState(() {
+      _searching = true;
+      _results = const [];
+      _searchMessage = null;
+      _lastRequestUrl = null;
+    });
+
+    try {
+      final requestUrl =
+          _replaceTemplate(
+        requestInfo.url,
+        keyword,
+      );
+
+      final uri =
+          _resolveUri(
+        rule,
+        requestUrl,
+      );
+
+      if (uri == null ||
+          !uri.hasScheme) {
+        throw FormatException(
+          '搜索地址无效：'
+          '$requestUrl',
+        );
+      }
+
+      _lastRequestUrl =
+          uri.toString();
+
+      final method =
+          requestInfo.method
+              .toUpperCase();
+
+      HttpClientRequest request;
+
+      if (method == 'POST') {
+        request =
+            await _client.postUrl(
+          uri,
+        );
+      } else {
+        request =
+            await _client.getUrl(
+          uri,
+        );
+      }
+
+      final headers =
+          <String, String>{};
+
+      headers.addAll(
+        rule.headers,
+      );
+
+      headers.addAll(
+        requestInfo.headers,
+      );
+
+      headers.putIfAbsent(
+        'User-Agent',
+        () =>
+            'Mozilla/5.0 '
+            '(Linux; Android 14) '
+            'AppleWebKit/537.36 '
+            '(KHTML, like Gecko) '
+            'Chrome/140.0.0.0 '
+            'Mobile Safari/537.36',
+      );
+
+      headers.putIfAbsent(
+        'Accept',
+        () => '*/*',
+      );
+
+      if (rule.baseUrl.isNotEmpty) {
+        headers.putIfAbsent(
+          'Referer',
+          () => rule.baseUrl,
+        );
+      }
+
+      for (final entry
+          in headers.entries) {
+        request.headers.set(
+          entry.key,
+          _replaceTemplate(
+            entry.value,
+            keyword,
+          ),
+        );
+      }
+
+      if (method == 'POST') {
+        var body =
+            requestInfo.body;
+
+        if (body.isEmpty) {
+          body =
+              'wd=${Uri.encodeQueryComponent(keyword)}';
+        }
+
+        request.write(
+          _replaceTemplate(
+            body,
+            keyword,
+          ),
+        );
+      }
+
+      final response =
+          await request.close();
+
+      final bytes =
+          await response.fold<
+              List<int>>(
+        <int>[],
+        (
+          previous,
+          element,
+        ) {
+          previous.addAll(
+            element,
+          );
+          return previous;
+        },
+      );
+
+      final body =
+          _decodeBody(
+        bytes,
+      );
+
+      if (response.statusCode <
+              200 ||
+          response.statusCode >=
+              400) {
+        throw HttpException(
+          'HTTP '
+          '${response.statusCode}',
+          uri: uri,
+        );
+      }
+
+      var results =
+          _parseJsonResults(
+        body,
+        rule,
+      );
+
+      if (results.isEmpty) {
+        results =
+            _parseHtmlResults(
+          body,
+          rule,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _results =
+            _deduplicate(
+          results,
+        );
+
+        _searching = false;
+
+        if (_results.isEmpty) {
+          _searchMessage =
+              '请求成功，但当前兼容器'
+              '没有从页面中识别到结果。\n\n'
+              'HTTP ${response.statusCode}\n'
+              '返回 ${bytes.length} 字节\n\n'
+              '规则搜索操作：'
+              '${rule.searchOps.join(' → ')}';
+        } else {
+          _searchMessage =
+              '搜索成功：'
+              '${_results.length} 条结果';
+        }
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _searching = false;
+        _results = const [];
+        _searchMessage =
+            '搜索失败：$error';
+      });
+    }
+  }
+
+  String _decodeBody(
+    List<int> bytes,
+  ) {
+    try {
+      return utf8.decode(
+        bytes,
+      );
+    } catch (_) {
+      return latin1.decode(
+        bytes,
+      );
+    }
+  }
+
+  List<_AniBakaSearchResult>
+      _parseJsonResults(
+    String body,
+    _AniBakaRule rule,
+  ) {
+    final trimmed =
+        body.trimLeft();
+
+    if (!trimmed.startsWith(
+          '{',
+        ) &&
+        !trimmed.startsWith(
+          '[',
+        )) {
+      return const [];
+    }
+
+    try {
+      final decoded =
+          jsonDecode(body);
+
+      final maps =
+          <Map<dynamic, dynamic>>[];
+
+      void walk(
+        dynamic value,
+      ) {
+        if (value is Map) {
+          final hasName =
+              value.containsKey(
+                    'name',
+                  ) ||
+                  value.containsKey(
+                    'title',
+                  ) ||
+                  value.containsKey(
+                    'vod_name',
+                  ) ||
+                  value.containsKey(
+                    'video_name',
+                  );
+
+          if (hasName) {
+            maps.add(
+              value,
+            );
+          }
+
+          for (final child
+              in value.values) {
+            walk(child);
+          }
+        } else if (value is List) {
+          for (final child
+              in value) {
+            walk(child);
+          }
+        }
+      }
+
+      walk(decoded);
+
+      final results =
+          <_AniBakaSearchResult>[];
+
+      for (final item in maps) {
+        final title =
+            _firstText(
+          item,
+          const [
+            'name',
+            'title',
+            'vod_name',
+            'video_name',
+          ],
+        );
+
+        if (title.isEmpty) {
+          continue;
+        }
+
+        final image =
+            _firstText(
+          item,
+          const [
+            'pic',
+            'image',
+            'cover',
+            'vod_pic',
+            'poster',
+            'thumb',
+          ],
+        );
+
+        var url =
+            _firstText(
+          item,
+          const [
+            'url',
+            'link',
+            'href',
+            'detailUrl',
+            'detail_url',
+          ],
+        );
+
+        final id =
+            _firstText(
+          item,
+          const [
+            'id',
+            'vod_id',
+            'video_id',
+          ],
+        );
+
+        if (url.isEmpty &&
+            id.isNotEmpty) {
+          url = id;
+        }
+
+        results.add(
+          _AniBakaSearchResult(
+            title: title,
+            image:
+                _resolveTextUrl(
+              rule,
+              image,
+            ),
+            detail:
+                _resolveDetail(
+              rule,
+              url,
+            ),
+            subtitle: id,
+          ),
+        );
+      }
+
+      return results;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  String _firstText(
+    Map<dynamic, dynamic> map,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value =
+          map[key];
+
+      if (value != null) {
+        final text =
+            value.toString()
+                .trim();
+
+        if (text.isNotEmpty) {
+          return text;
+        }
+      }
+    }
+
+    return '';
+  }
+
+  List<_AniBakaSearchResult>
+      _parseHtmlResults(
+    String html,
+    _AniBakaRule rule,
+  ) {
+    final results =
+        <_AniBakaSearchResult>[];
+
+    final anchorPattern =
+        RegExp(
+      r'''<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)</a>''',
+      caseSensitive: false,
+    );
+
+    for (final match
+        in anchorPattern
+            .allMatches(html)) {
+      final href =
+          match.group(1)
+                  ?.trim() ??
+              '';
+
+      final inner =
+          match.group(2) ?? '';
+
+      if (href.isEmpty) {
+        continue;
+      }
+
+      final lower =
+          href.toLowerCase();
+
+      final looksLikeDetail =
+          lower.contains(
+                '/detail',
+              ) ||
+              lower.contains(
+                '/voddetail',
+              ) ||
+              lower.contains(
+                '/vod/detail',
+              ) ||
+              lower.contains(
+                '/anime/',
+              ) ||
+              lower.contains(
+                '/bangumi/',
+              ) ||
+              lower.contains(
+                '/show/',
+              );
+
+      if (!looksLikeDetail) {
+        continue;
+      }
+
+      var title =
+          _extractAttribute(
+        inner,
+        'title',
+      );
+
+      if (title.isEmpty) {
+        title =
+            _extractAttribute(
+          inner,
+          'alt',
+        );
+      }
+
+      if (title.isEmpty) {
+        title =
+            _stripHtml(
+          inner,
+        );
+      }
+
+      title =
+          title.trim();
+
+      if (title.isEmpty ||
+          title.length > 120) {
+        continue;
+      }
+
+      var image =
+          _extractAttribute(
+        inner,
+        'data-src',
+      );
+
+      if (image.isEmpty) {
+        image =
+            _extractAttribute(
+          inner,
+          'data-original',
+        );
+      }
+
+      if (image.isEmpty) {
+        image =
+            _extractAttribute(
+          inner,
+          'src',
+        );
+      }
+
+      results.add(
+        _AniBakaSearchResult(
+          title: title,
+          image:
+              _resolveTextUrl(
+            rule,
+            image,
+          ),
+          detail:
+              _resolveTextUrl(
+            rule,
+            href,
+          ),
+          subtitle: href,
+        ),
+      );
+    }
+
+    if (results.isNotEmpty) {
+      return results;
+    }
+
+    final loosePattern =
+        RegExp(
+      r'''href\s*=\s*["']([^"']*(?:detail|voddetail)[^"']*)["'][^>]*>([\s\S]{0,500}?)</a>''',
+      caseSensitive: false,
+    );
+
+    for (final match
+        in loosePattern
+            .allMatches(html)) {
+      final href =
+          match.group(1) ?? '';
+
+      final inner =
+          match.group(2) ?? '';
+
+      final title =
+          _stripHtml(
+        inner,
+      ).trim();
+
+      if (title.isEmpty) {
+        continue;
+      }
+
+      results.add(
+        _AniBakaSearchResult(
+          title: title,
+          image: '',
+          detail:
+              _resolveTextUrl(
+            rule,
+            href,
+          ),
+          subtitle: href,
+        ),
+      );
+    }
+
+    return results;
+  }
+
+  String _extractAttribute(
+    String html,
+    String attribute,
+  ) {
+    final pattern =
+        RegExp(
+      '$attribute'
+      r'''\s*=\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    );
+
+    return pattern
+            .firstMatch(html)
+            ?.group(1)
+            ?.trim() ??
+        '';
+  }
+
+  String _stripHtml(
+    String value,
+  ) {
+    var text =
+        value.replaceAll(
+      RegExp(
+        r'<script[\s\S]*?</script>',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
+
+    text =
+        text.replaceAll(
+      RegExp(
+        r'<style[\s\S]*?</style>',
+        caseSensitive: false,
+      ),
+      ' ',
+    );
+
+    text =
+        text.replaceAll(
+      RegExp(
+        r'<[^>]+>',
+      ),
+      ' ',
+    );
+
+    text =
+        text.replaceAll(
+      '&nbsp;',
+      ' ',
+    );
+
+    text =
+        text.replaceAll(
+      '&amp;',
+      '&',
+    );
+
+    text =
+        text.replaceAll(
+      '&quot;',
+      '"',
+    );
+
+    text =
+        text.replaceAll(
+      '&#39;',
+      "'",
+    );
+
+    return text.replaceAll(
+      RegExp(
+        r'\s+',
+      ),
+      ' ',
+    );
+  }
+
+  String _resolveDetail(
+    _AniBakaRule rule,
+    String value,
+  ) {
+    if (value.isEmpty) {
+      return '';
+    }
+
+    if (value.startsWith(
+          'http://',
+        ) ||
+        value.startsWith(
+          'https://',
+        ) ||
+        value.startsWith('/')) {
+      return _resolveTextUrl(
+        rule,
+        value,
+      );
+    }
+
+    final numeric =
+        int.tryParse(
+      value,
+    );
+
+    if (numeric != null) {
+      return value;
+    }
+
+    return _resolveTextUrl(
+      rule,
+      value,
+    );
+  }
+
+  String _resolveTextUrl(
+    _AniBakaRule rule,
+    String value,
+  ) {
+    if (value.isEmpty) {
+      return '';
+    }
+
+    if (value.startsWith(
+          'data:',
+        )) {
+      return value;
+    }
+
+    final uri =
+        _resolveUri(
+      rule,
+      value,
+    );
+
+    return uri?.toString() ??
+        value;
+  }
+
+  List<_AniBakaSearchResult>
+      _deduplicate(
+    List<_AniBakaSearchResult>
+        input,
+  ) {
+    final output =
+        <_AniBakaSearchResult>[];
+
+    final seen =
+        <String>{};
+
+    for (final item in input) {
+      final key =
+          '${item.title}|'
+          '${item.detail}';
+
+      if (seen.add(key)) {
+        output.add(item);
+      }
+    }
+
+    return output
+        .take(50)
+        .toList();
+  }
+
+  void _showMessage(
+    String message,
+  ) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+        ),
+      ),
+    );
   }
 
   Future<void> _showRuleJson(
     _AniBakaRule rule,
   ) async {
     try {
-      final raw = await rootBundle.loadString(
+      final raw =
+          await rootBundle.loadString(
         'assets/anibaka/rules/${rule.file}',
       );
 
-      final decoded = jsonDecode(raw);
+      final decoded =
+          jsonDecode(raw);
 
       final formatted =
           const JsonEncoder.withIndent(
@@ -384,45 +1365,43 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
 
       await showDialog<void>(
         context: context,
-        builder: (dialogContext) {
+        builder: (
+          dialogContext,
+        ) {
           return AlertDialog(
-            title: Text(rule.name),
+            title: Text(
+              rule.name,
+            ),
             content: SizedBox(
               width: 720,
-              child: SingleChildScrollView(
-                child: SelectableText(
+              child:
+                  SingleChildScrollView(
+                child:
+                    SelectableText(
                   formatted,
                 ),
               ),
             ),
             actions: [
               TextButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(
+                onPressed:
+                    () async {
+                  await Clipboard
+                      .setData(
                     ClipboardData(
-                      text: formatted,
-                    ),
-                  );
-
-                  if (!dialogContext.mounted) {
-                    return;
-                  }
-
-                  ScaffoldMessenger.of(
-                    dialogContext,
-                  ).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        '规则 JSON 已复制',
-                      ),
+                      text:
+                          formatted,
                     ),
                   );
                 },
-                icon: const Icon(
-                  Icons.content_copy_rounded,
+                icon:
+                    const Icon(
+                  Icons
+                      .content_copy_rounded,
                 ),
-                label: const Text(
-                  '复制',
+                label:
+                    const Text(
+                  '复制 JSON',
                 ),
               ),
               FilledButton(
@@ -431,7 +1410,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                     dialogContext,
                   ).pop();
                 },
-                child: const Text(
+                child:
+                    const Text(
                   '关闭',
                 ),
               ),
@@ -440,18 +1420,8 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         },
       );
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
-        SnackBar(
-          content: Text(
-            '读取规则失败：$error',
-          ),
-        ),
+      _showMessage(
+        '读取规则失败：$error',
       );
     }
   }
@@ -462,12 +1432,13 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
   ) {
     return SettingsDetailScaffold(
       title: const Text(
-        'AniBaka 规则',
+        'AniBaka 搜索测试',
       ),
       body: SafeArea(
         top: false,
         child: Align(
-          alignment: Alignment.topCenter,
+          alignment:
+              Alignment.topCenter,
           child: ConstrainedBox(
             constraints:
                 const BoxConstraints(
@@ -492,57 +1463,16 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
       return Center(
         child: Padding(
           padding:
-              const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize:
-                MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                size: 52,
-              ),
-              const SizedBox(
-                height: 16,
-              ),
-              Text(
-                'AniBaka 规则加载失败',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge,
-              ),
-              const SizedBox(
-                height: 8,
-              ),
-              SelectableText(
-                _error!,
-              ),
-              const SizedBox(
-                height: 16,
-              ),
-              FilledButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                  });
-
-                  _loadRules();
-                },
-                icon: const Icon(
-                  Icons.refresh_rounded,
-                ),
-                label: const Text(
-                  '重新加载',
-                ),
-              ),
-            ],
+              const EdgeInsets.all(
+            24,
+          ),
+          child: SelectableText(
+            'AniBaka 加载失败\n\n'
+            '$_error',
           ),
         ),
       );
     }
-
-    final visibleRules =
-        _visibleRules;
 
     return ListView(
       padding:
@@ -553,156 +1483,429 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
         32,
       ),
       children: [
-        Card(
-          child: Padding(
-            padding:
-                const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons
-                          .extension_rounded,
-                      size: 30,
-                    ),
-                    const SizedBox(
-                      width: 12,
-                    ),
-                    Expanded(
-                      child: Text(
-                        'AniBaka 规则库',
-                        style:
-                            Theme.of(context)
-                                .textTheme
-                                .titleLarge,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(
-                  height: 12,
-                ),
-                Text(
-                  '已加载 ${_rules.length} 条 '
-                  'anx-rule/2 规则',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium,
-                ),
-                const SizedBox(
-                  height: 8,
-                ),
-                Text(
-                  '当前为兼容性测试页面。'
-                  '这一阶段用于确认星番屋能够读取、'
-                  '展示和检查 AniBaka 规则。'
-                  '搜索、剧集解析和播放将在后续版本接入。',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium,
-                ),
-              ],
-            ),
-          ),
-        ),
+        _buildHeader(),
         const SizedBox(
           height: 16,
         ),
+        _buildSearchPanel(),
+        const SizedBox(
+          height: 16,
+        ),
+        if (_searchMessage !=
+            null)
+          Card(
+            child: Padding(
+              padding:
+                  const EdgeInsets
+                      .all(16),
+              child:
+                  SelectableText(
+                _searchMessage!,
+              ),
+            ),
+          ),
+        if (_lastRequestUrl !=
+            null) ...[
+          const SizedBox(
+            height: 8,
+          ),
+          Card(
+            child: ListTile(
+              leading:
+                  const Icon(
+                Icons
+                    .link_rounded,
+              ),
+              title:
+                  const Text(
+                '实际请求地址',
+              ),
+              subtitle:
+                  SelectableText(
+                _lastRequestUrl!,
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(
+          height: 16,
+        ),
+        if (_results.isNotEmpty)
+          _buildResults(),
+        const SizedBox(
+          height: 24,
+        ),
+        _buildRuleSection(),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    final searchable =
+        _rules
+            .where(
+              (rule) =>
+                  rule.searchRequest !=
+                  null,
+            )
+            .length;
+
+    return Card(
+      child: Padding(
+        padding:
+            const EdgeInsets.all(
+          20,
+        ),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment
+                  .start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons
+                      .travel_explore_rounded,
+                  size: 30,
+                ),
+                const SizedBox(
+                  width: 12,
+                ),
+                Expanded(
+                  child: Text(
+                    'AniBaka 搜索兼容测试',
+                    style:
+                        Theme.of(
+                      context,
+                    ).textTheme
+                            .titleLarge,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(
+              height: 12,
+            ),
+            Text(
+              '规则总数：'
+              '${_rules.length}',
+            ),
+            Text(
+              '已发现直接搜索入口：'
+              '$searchable',
+            ),
+            const SizedBox(
+              height: 8,
+            ),
+            Text(
+              '当前阶段支持直接 HTTP '
+              '搜索、常见 JSON 搜索结果以及'
+              '常见 HTML 详情链接提取。'
+              '这还不是完整 anx-rule/2 '
+              '解释器。',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchPanel() {
+    final rule =
+        _selectedRule;
+
+    return Card(
+      child: Padding(
+        padding:
+            const EdgeInsets.all(
+          16,
+        ),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment
+                  .stretch,
+          children: [
+            Text(
+              '搜索测试',
+              style:
+                  Theme.of(context)
+                      .textTheme
+                      .titleMedium,
+            ),
+            const SizedBox(
+              height: 12,
+            ),
+            DropdownButtonFormField<
+                _AniBakaRule>(
+              initialValue: rule,
+              isExpanded: true,
+              decoration:
+                  const InputDecoration(
+                labelText:
+                    '选择规则',
+                border:
+                    OutlineInputBorder(),
+              ),
+              items: _rules
+                  .map(
+                    (item) =>
+                        DropdownMenuItem(
+                      value: item,
+                      child: Text(
+                        item.searchRequest ==
+                                null
+                            ? '${item.name} '
+                                '（暂不支持搜索）'
+                            : item.name,
+                        overflow:
+                            TextOverflow
+                                .ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged:
+                  (value) {
+                setState(() {
+                  _selectedRule =
+                      value;
+                  _results =
+                      const [];
+                  _searchMessage =
+                      null;
+                  _lastRequestUrl =
+                      null;
+                });
+              },
+            ),
+            const SizedBox(
+              height: 12,
+            ),
+            TextField(
+              controller:
+                  _keywordController,
+              textInputAction:
+                  TextInputAction
+                      .search,
+              onSubmitted: (_) {
+                _search();
+              },
+              decoration:
+                  const InputDecoration(
+                labelText:
+                    '番剧名称',
+                hintText:
+                    '例如：葬送的芙莉莲',
+                prefixIcon:
+                    Icon(
+                  Icons
+                      .search_rounded,
+                ),
+                border:
+                    OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(
+              height: 12,
+            ),
+            FilledButton.icon(
+              onPressed:
+                  _searching
+                      ? null
+                      : _search,
+              icon: _searching
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child:
+                          CircularProgressIndicator(
+                        strokeWidth:
+                            2,
+                      ),
+                    )
+                  : const Icon(
+                      Icons
+                          .search_rounded,
+                    ),
+              label: Text(
+                _searching
+                    ? '正在搜索...'
+                    : '开始搜索',
+              ),
+            ),
+            if (rule != null) ...[
+              const SizedBox(
+                height: 12,
+              ),
+              Text(
+                '搜索操作：'
+                '${rule.searchOps.join(' → ')}',
+                style:
+                    Theme.of(context)
+                        .textTheme
+                        .bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResults() {
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Text(
+          '搜索结果 '
+          '(${_results.length})',
+          style:
+              Theme.of(context)
+                  .textTheme
+                  .titleMedium,
+        ),
+        const SizedBox(
+          height: 8,
+        ),
+        for (final item
+            in _results) ...[
+          Card(
+            child: ListTile(
+              leading: SizedBox(
+                width: 48,
+                height: 64,
+                child:
+                    item.image.isEmpty
+                        ? const Icon(
+                            Icons
+                                .movie_rounded,
+                          )
+                        : Image.network(
+                            item.image,
+                            fit:
+                                BoxFit.cover,
+                            errorBuilder:
+                                (
+                              context,
+                              error,
+                              stackTrace,
+                            ) {
+                              return const Icon(
+                                Icons
+                                    .broken_image_outlined,
+                              );
+                            },
+                          ),
+              ),
+              title: Text(
+                item.title,
+              ),
+              subtitle: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment
+                        .start,
+                children: [
+                  if (item.subtitle
+                      .isNotEmpty)
+                    Text(
+                      item.subtitle,
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow
+                              .ellipsis,
+                    ),
+                  if (item.detail
+                      .isNotEmpty)
+                    Text(
+                      item.detail,
+                      maxLines: 1,
+                      overflow:
+                          TextOverflow
+                              .ellipsis,
+                      style:
+                          Theme.of(
+                        context,
+                      ).textTheme
+                              .bodySmall,
+                    ),
+                ],
+              ),
+              trailing:
+                  const Icon(
+                Icons
+                    .chevron_right_rounded,
+              ),
+              onTap: () {
+                _showMessage(
+                  '下一阶段会接入详情页和剧集解析',
+                );
+              },
+            ),
+          ),
+          const SizedBox(
+            height: 6,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRuleSection() {
+    final visible =
+        _visibleRules;
+
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Text(
+          '规则列表',
+          style:
+              Theme.of(context)
+                  .textTheme
+                  .titleMedium,
+        ),
+        const SizedBox(
+          height: 8,
+        ),
         TextField(
           controller:
-              _searchController,
+              _ruleSearchController,
           onChanged: (_) {
             setState(() {});
           },
           decoration:
-              InputDecoration(
+              const InputDecoration(
             hintText:
-                '搜索规则名称或站点',
+                '筛选规则',
             prefixIcon:
-                const Icon(
-              Icons.search_rounded,
+                Icon(
+              Icons.filter_alt_outlined,
             ),
-            suffixIcon:
-                _searchController
-                        .text
-                        .isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip:
-                            '清除',
-                        onPressed:
-                            () {
-                          _searchController
-                              .clear();
-                          setState(
-                            () {},
-                          );
-                        },
-                        icon:
-                            const Icon(
-                          Icons
-                              .close_rounded,
-                        ),
-                      ),
             border:
-                const OutlineInputBorder(),
+                OutlineInputBorder(),
           ),
-        ),
-        const SizedBox(
-          height: 16,
-        ),
-        Row(
-          children: [
-            Text(
-              '规则列表',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium,
-            ),
-            const Spacer(),
-            Text(
-              '${visibleRules.length} / '
-              '${_rules.length}',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium,
-            ),
-          ],
         ),
         const SizedBox(
           height: 10,
         ),
-        if (visibleRules.isEmpty)
-          const Card(
-            child: Padding(
-              padding:
-                  EdgeInsets.all(32),
-              child: Center(
-                child: Text(
-                  '没有找到符合条件的规则',
-                ),
-              ),
-            ),
-          ),
         for (final rule
-            in visibleRules) ...[
+            in visible) ...[
           Card(
-            clipBehavior:
-                Clip.antiAlias,
             child: ListTile(
-              contentPadding:
-                  const EdgeInsets
-                      .symmetric(
-                horizontal: 16,
-                vertical: 10,
-              ),
-              leading: const CircleAvatar(
+              leading:
+                  CircleAvatar(
                 child: Icon(
-                  Icons
-                      .movie_filter_rounded,
+                  rule.searchRequest ==
+                          null
+                      ? Icons
+                          .extension_off_outlined
+                      : Icons
+                          .extension_rounded,
                 ),
               ),
               title: Text(
@@ -713,57 +1916,48 @@ class _AniBakaPreviewPageState extends State<AniBakaPreviewPage> {
                     CrossAxisAlignment
                         .start,
                 children: [
-                  if (rule.baseUrl
-                      .isNotEmpty) ...[
-                    const SizedBox(
-                      height: 4,
-                    ),
-                    Text(
-                      rule.baseUrl,
-                      maxLines: 1,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                    ),
-                  ],
-                  const SizedBox(
-                    height: 3,
+                  Text(
+                    rule.baseUrl,
+                    maxLines: 1,
+                    overflow:
+                        TextOverflow
+                            .ellipsis,
                   ),
                   Text(
-                    rule.file,
-                    style:
-                        Theme.of(context)
-                            .textTheme
-                            .bodySmall,
+                    rule.searchOps
+                        .join(' → '),
+                    maxLines: 2,
+                    overflow:
+                        TextOverflow
+                            .ellipsis,
                   ),
-                  if (rule.description
-                      .isNotEmpty) ...[
-                    const SizedBox(
-                      height: 4,
-                    ),
-                    Text(
-                      rule.description,
-                      maxLines: 2,
-                      overflow:
-                          TextOverflow
-                              .ellipsis,
-                    ),
-                  ],
                 ],
               ),
               trailing:
-                  const Icon(
-                Icons.code_rounded,
+                  IconButton(
+                tooltip:
+                    '查看 JSON',
+                onPressed: () {
+                  _showRuleJson(
+                    rule,
+                  );
+                },
+                icon:
+                    const Icon(
+                  Icons
+                      .code_rounded,
+                ),
               ),
               onTap: () {
-                _showRuleJson(
-                  rule,
-                );
+                setState(() {
+                  _selectedRule =
+                      rule;
+                });
               },
             ),
           ),
           const SizedBox(
-            height: 8,
+            height: 6,
           ),
         ],
       ],
@@ -779,6 +1973,9 @@ class _AniBakaRule {
     required this.description,
     required this.iconUrl,
     required this.file,
+    required this.headers,
+    required this.searchOps,
+    required this.searchRequest,
   });
 
   final String id;
@@ -787,6 +1984,152 @@ class _AniBakaRule {
   final String description;
   final String iconUrl;
   final String file;
+
+  final Map<String, String>
+      headers;
+
+  final List<String>
+      searchOps;
+
+  final _AniBakaSearchRequest?
+      searchRequest;
+
+  factory _AniBakaRule.fromMap(
+    Map<dynamic, dynamic> map,
+  ) {
+    final headers =
+        <String, String>{};
+
+    final rawHeaders =
+        map['headers'];
+
+    if (rawHeaders is Map) {
+      for (final entry
+          in rawHeaders.entries) {
+        headers[
+            entry.key.toString()] =
+            entry.value.toString();
+      }
+    }
+
+    final ops =
+        <String>[];
+
+    final rawOps =
+        map['searchOps'];
+
+    if (rawOps is List) {
+      for (final value
+          in rawOps) {
+        ops.add(
+          value.toString(),
+        );
+      }
+    }
+
+    final rawRequest =
+        map['searchRequest'];
+
+    return _AniBakaRule(
+      id:
+          map['id']?.toString() ??
+              '',
+      name:
+          map['name']
+                  ?.toString() ??
+              '',
+      baseUrl:
+          map['baseUrl']
+                  ?.toString() ??
+              '',
+      description:
+          map['description']
+                  ?.toString() ??
+              '',
+      iconUrl:
+          map['iconUrl']
+                  ?.toString() ??
+              '',
+      file:
+          map['file']
+                  ?.toString() ??
+              '',
+      headers: headers,
+      searchOps: ops,
+      searchRequest:
+          rawRequest is Map
+              ? _AniBakaSearchRequest
+                  .fromMap(
+                  rawRequest,
+                )
+              : null,
+    );
+  }
+}
+
+class _AniBakaSearchRequest {
+  const _AniBakaSearchRequest({
+    required this.url,
+    required this.method,
+    required this.headers,
+    required this.body,
+  });
+
+  final String url;
+  final String method;
+  final Map<String, String>
+      headers;
+  final String body;
+
+  factory _AniBakaSearchRequest.fromMap(
+    Map<dynamic, dynamic> map,
+  ) {
+    final headers =
+        <String, String>{};
+
+    final rawHeaders =
+        map['headers'];
+
+    if (rawHeaders is Map) {
+      for (final entry
+          in rawHeaders.entries) {
+        headers[
+            entry.key.toString()] =
+            entry.value.toString();
+      }
+    }
+
+    return _AniBakaSearchRequest(
+      url:
+          map['url']
+                  ?.toString() ??
+              '',
+      method:
+          map['method']
+                  ?.toString()
+                  .toUpperCase() ??
+              'GET',
+      headers: headers,
+      body:
+          map['body']
+                  ?.toString() ??
+              '',
+    );
+  }
+}
+
+class _AniBakaSearchResult {
+  const _AniBakaSearchResult({
+    required this.title,
+    required this.image,
+    required this.detail,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String image;
+  final String detail;
+  final String subtitle;
 }
 '''.lstrip()
 
@@ -795,17 +2138,11 @@ class _AniBakaRule {
         encoding="utf-8",
     )
 
-    log(
-        "AniBaka 页面创建完成"
-    )
-
 
 def patch_plugin_module():
-    log(
-        "修改 plugin_module.dart"
+    require_file(
+        PLUGIN_MODULE
     )
-
-    require_file(PLUGIN_MODULE)
 
     text = PLUGIN_MODULE.read_text(
         encoding="utf-8"
@@ -813,39 +2150,38 @@ def patch_plugin_module():
 
     import_line = (
         "import "
-        "'package:kazumi/pages/plugin_editor/"
+        "'package:kazumi/pages/"
+        "plugin_editor/"
         "anibaka_preview_page.dart';\n"
     )
 
     if import_line not in text:
-        import_marker = (
+        marker = (
             "import "
             "'package:flutter_modular/"
             "flutter_modular.dart';\n"
         )
 
-        if import_marker not in text:
+        if marker not in text:
             raise RuntimeError(
-                "plugin_module.dart 中"
                 "找不到 flutter_modular import"
             )
 
         text = text.replace(
-            import_marker,
-            import_marker + import_line,
+            marker,
+            marker + import_line,
             1,
         )
 
-    route_path = (
+    if (
         "'/anibaka-preview'"
-    )
-
-    if route_path not in text:
-        shop_marker = """      ..route(
+        not in text
+    ):
+        marker = """      ..route(
         '/shop',
 """
 
-        route_code = """      ..route(
+        replacement = """      ..route(
         '/anibaka-preview',
         child: (context, state) =>
             const AniBakaPreviewPage(),
@@ -854,15 +2190,14 @@ def patch_plugin_module():
         '/shop',
 """
 
-        if shop_marker not in text:
+        if marker not in text:
             raise RuntimeError(
-                "plugin_module.dart 中"
                 "找不到 /shop 路由"
             )
 
         text = text.replace(
-            shop_marker,
-            route_code,
+            marker,
+            replacement,
             1,
         )
 
@@ -871,30 +2206,22 @@ def patch_plugin_module():
         encoding="utf-8",
     )
 
-    log(
-        "AniBaka 路由添加完成"
-    )
-
 
 def patch_plugin_view():
-    log(
-        "修改规则管理页面"
+    require_file(
+        PLUGIN_VIEW
     )
-
-    require_file(PLUGIN_VIEW)
 
     text = PLUGIN_VIEW.read_text(
         encoding="utf-8"
     )
 
     if (
-        "AniBaka 规则"
-        in text
-        and "anibaka-preview"
+        "anibaka-preview"
         in text
     ):
         log(
-            "AniBaka 按钮已存在，跳过"
+            "AniBaka 入口已存在"
         )
         return
 
@@ -919,15 +2246,13 @@ def patch_plugin_view():
                                     minimumSize: const Size(120, 48)),
                                 onPressed: () => context.pushNamed(
                                     '/settings/plugin/anibaka-preview'),
-                                icon: const Icon(Icons.extension_rounded),
-                                label: const Text('AniBaka 规则')),
+                                icon: const Icon(Icons.travel_explore_rounded),
+                                label: const Text('AniBaka 搜索')),
 """
 
     if marker not in text:
         raise RuntimeError(
-            "plugin_view_page.dart 中"
-            "找不到规则仓库按钮，"
-            "为避免破坏源码已停止"
+            "找不到规则仓库按钮"
         )
 
     text = text.replace(
@@ -941,15 +2266,8 @@ def patch_plugin_view():
         encoding="utf-8",
     )
 
-    log(
-        "规则管理页 AniBaka 按钮"
-        "添加完成"
-    )
-
 
 def verify():
-    log("执行最终检查")
-
     require_file(
         ASSET_ROOT
         / "manifest.json"
@@ -958,48 +2276,6 @@ def verify():
     require_file(
         ANIBAKA_PAGE
     )
-
-    module_text = (
-        PLUGIN_MODULE.read_text(
-            encoding="utf-8"
-        )
-    )
-
-    view_text = (
-        PLUGIN_VIEW.read_text(
-            encoding="utf-8"
-        )
-    )
-
-    pubspec_text = (
-        PUBSPEC.read_text(
-            encoding="utf-8"
-        )
-    )
-
-    if (
-        "anibaka-preview"
-        not in module_text
-    ):
-        raise RuntimeError(
-            "AniBaka 路由检查失败"
-        )
-
-    if (
-        "AniBaka 规则"
-        not in view_text
-    ):
-        raise RuntimeError(
-            "AniBaka 按钮检查失败"
-        )
-
-    if (
-        "assets/anibaka/"
-        not in pubspec_text
-    ):
-        raise RuntimeError(
-            "AniBaka assets 检查失败"
-        )
 
     manifest = json.loads(
         (
@@ -1017,34 +2293,59 @@ def verify():
 
     if not count:
         raise RuntimeError(
-            "没有识别到 AniBaka 规则"
+            "没有识别到规则"
+        )
+
+    page_text = (
+        ANIBAKA_PAGE.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    if (
+        "AniBaka 搜索兼容测试"
+        not in page_text
+    ):
+        raise RuntimeError(
+            "搜索页面生成失败"
+        )
+
+    module_text = (
+        PLUGIN_MODULE.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    if (
+        "anibaka-preview"
+        not in module_text
+    ):
+        raise RuntimeError(
+            "AniBaka 路由缺失"
         )
 
     log(
-        f"检查完成，共 {count} 条规则"
+        f"最终检查完成："
+        f"{count} 条规则"
     )
 
 
 def main():
     log(
-        "开始生成星番屋 AniBaka "
-        "可见测试版"
+        "开始生成 AniBaka "
+        "搜索测试版"
     )
 
     prepare_assets()
-
     patch_pubspec()
-
     write_anibaka_page()
-
     patch_plugin_module()
-
     patch_plugin_view()
-
     verify()
 
     log(
-        "AniBaka 测试版修改全部完成"
+        "AniBaka 搜索测试版"
+        "生成完成"
     )
 
 
