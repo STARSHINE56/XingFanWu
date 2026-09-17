@@ -8,8 +8,9 @@ permissions:
 
 jobs:
   test:
-    name: 验证 AniBaka 工作流
+    name: 构建 AniBaka 可见测试版
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: 检出源码
@@ -26,9 +27,15 @@ jobs:
         with:
           flutter-version: "3.47.3"
           channel: stable
+          cache: true
 
       - name: 下载 AniBaka 规则库
+        shell: bash
         run: |
+          set -e
+
+          rm -rf /tmp/AniBakaRule
+
           git clone \
             --depth=1 \
             https://github.com/AniBakaBaka/AniBakaRule.git \
@@ -41,16 +48,915 @@ jobs:
             -type f \
             | wc -l
 
+      - name: 准备 AniBaka 规则资源
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf assets/anibaka
+          mkdir -p assets/anibaka/rules
+
+          cp \
+            /tmp/AniBakaRule/*.json \
+            assets/anibaka/rules/
+
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          source = Path("/tmp/AniBakaRule")
+          output = Path("assets/anibaka/manifest.json")
+
+          rules = []
+
+          for path in sorted(source.glob("*.json")):
+              if path.name == "index.json":
+                  continue
+
+              try:
+                  data = json.loads(
+                      path.read_text(
+                          encoding="utf-8"
+                      )
+                  )
+              except Exception:
+                  continue
+
+              if not isinstance(data, dict):
+                  continue
+
+              if data.get("format") != "anx-rule/2":
+                  continue
+
+              rules.append({
+                  "id": str(
+                      data.get(
+                          "id",
+                          path.stem
+                      )
+                  ),
+                  "name": str(
+                      data.get(
+                          "name",
+                          path.stem
+                      )
+                  ),
+                  "baseUrl": str(
+                      data.get(
+                          "baseUrl",
+                          ""
+                      )
+                  ),
+                  "description": str(
+                      data.get(
+                          "description",
+                          ""
+                      )
+                  ),
+                  "file": path.name,
+              })
+
+          manifest = {
+              "format":
+                  "xingfanwu-anibaka-preview/1",
+              "count":
+                  len(rules),
+              "rules":
+                  rules,
+          }
+
+          output.write_text(
+              json.dumps(
+                  manifest,
+                  ensure_ascii=False,
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+
+          print(
+              "识别 AniBaka 规则：",
+              len(rules),
+          )
+
+          for rule in rules:
+              print(
+                  "-",
+                  rule["name"],
+                  rule["baseUrl"],
+              )
+          PY
+
+      - name: 加入 Flutter Assets
+        shell: bash
+        run: |
+          set -e
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("pubspec.yaml")
+
+          text = path.read_text(
+              encoding="utf-8"
+          )
+
+          line = (
+              "    - assets/anibaka/\n"
+          )
+
+          if line in text:
+              print(
+                  "AniBaka assets 已存在"
+              )
+              raise SystemExit(0)
+
+          marker = "  assets:\n"
+
+          if marker not in text:
+              raise SystemExit(
+                  "pubspec.yaml 没找到 assets"
+              )
+
+          text = text.replace(
+              marker,
+              marker + line,
+              1,
+          )
+
+          path.write_text(
+              text,
+              encoding="utf-8",
+          )
+
+          print(
+              "已加入 AniBaka assets"
+          )
+          PY
+
+      - name: 创建 AniBaka 规则页面
+        shell: bash
+        run: |
+          set -e
+
+          cat > lib/pages/plugin_editor/anibaka_preview_page.dart <<'DART'
+          import 'dart:convert';
+
+          import 'package:flutter/material.dart';
+          import 'package:flutter/services.dart';
+          import 'package:kazumi/bean/settings/settings_detail_scaffold.dart';
+
+          class AniBakaPreviewPage extends StatefulWidget {
+            const AniBakaPreviewPage({
+              super.key,
+            });
+
+            @override
+            State<AniBakaPreviewPage> createState() =>
+                _AniBakaPreviewPageState();
+          }
+
+          class _AniBakaPreviewPageState
+              extends State<AniBakaPreviewPage> {
+            final TextEditingController _search =
+                TextEditingController();
+
+            List<_AniBakaRule> _rules = const [];
+
+            bool _loading = true;
+
+            String? _error;
+
+            @override
+            void initState() {
+              super.initState();
+              _load();
+            }
+
+            @override
+            void dispose() {
+              _search.dispose();
+              super.dispose();
+            }
+
+            Future<void> _load() async {
+              try {
+                final raw =
+                    await rootBundle.loadString(
+                  'assets/anibaka/manifest.json',
+                );
+
+                final decoded =
+                    jsonDecode(raw);
+
+                final list =
+                    decoded is Map
+                        ? decoded['rules']
+                        : null;
+
+                final rules =
+                    <_AniBakaRule>[];
+
+                if (list is List) {
+                  for (final item in list) {
+                    if (item is Map) {
+                      rules.add(
+                        _AniBakaRule(
+                          id:
+                              item['id']
+                                      ?.toString() ??
+                                  '',
+                          name:
+                              item['name']
+                                      ?.toString() ??
+                                  '',
+                          baseUrl:
+                              item['baseUrl']
+                                      ?.toString() ??
+                                  '',
+                          description:
+                              item['description']
+                                      ?.toString() ??
+                                  '',
+                          file:
+                              item['file']
+                                      ?.toString() ??
+                                  '',
+                        ),
+                      );
+                    }
+                  }
+                }
+
+                if (!mounted) {
+                  return;
+                }
+
+                setState(() {
+                  _rules = rules;
+                  _loading = false;
+                  _error = null;
+                });
+              } catch (error) {
+                if (!mounted) {
+                  return;
+                }
+
+                setState(() {
+                  _loading = false;
+                  _error = error.toString();
+                });
+              }
+            }
+
+            List<_AniBakaRule>
+                get _visibleRules {
+              final query =
+                  _search.text
+                      .trim()
+                      .toLowerCase();
+
+              if (query.isEmpty) {
+                return _rules;
+              }
+
+              return _rules
+                  .where(
+                    (rule) =>
+                        rule.name
+                            .toLowerCase()
+                            .contains(query) ||
+                        rule.id
+                            .toLowerCase()
+                            .contains(query) ||
+                        rule.baseUrl
+                            .toLowerCase()
+                            .contains(query),
+                  )
+                  .toList();
+            }
+
+            Future<void> _showJson(
+              _AniBakaRule rule,
+            ) async {
+              try {
+                final raw =
+                    await rootBundle.loadString(
+                  'assets/anibaka/rules/${rule.file}',
+                );
+
+                final decoded =
+                    jsonDecode(raw);
+
+                final formatted =
+                    const JsonEncoder.withIndent(
+                      '  ',
+                    ).convert(decoded);
+
+                if (!mounted) {
+                  return;
+                }
+
+                await showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) {
+                    return AlertDialog(
+                      title: Text(
+                        rule.name,
+                      ),
+                      content: SizedBox(
+                        width: 700,
+                        child:
+                            SingleChildScrollView(
+                          child:
+                              SelectableText(
+                            formatted,
+                          ),
+                        ),
+                      ),
+                      actions: [
+                        TextButton.icon(
+                          onPressed: () async {
+                            await Clipboard
+                                .setData(
+                              ClipboardData(
+                                text:
+                                    formatted,
+                              ),
+                            );
+
+                            if (!dialogContext
+                                .mounted) {
+                              return;
+                            }
+
+                            ScaffoldMessenger
+                                .of(
+                              dialogContext,
+                            ).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  '规则 JSON 已复制',
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons
+                                .content_copy_rounded,
+                          ),
+                          label:
+                              const Text(
+                            '复制',
+                          ),
+                        ),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.of(
+                              dialogContext,
+                            ).pop();
+                          },
+                          child:
+                              const Text(
+                            '关闭',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              } catch (error) {
+                if (!mounted) {
+                  return;
+                }
+
+                ScaffoldMessenger
+                    .of(context)
+                    .showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '读取规则失败：$error',
+                    ),
+                  ),
+                );
+              }
+            }
+
+            @override
+            Widget build(
+              BuildContext context,
+            ) {
+              return SettingsDetailScaffold(
+                title: const Text(
+                  'AniBaka 规则',
+                ),
+                body: SafeArea(
+                  top: false,
+                  child: Align(
+                    alignment:
+                        Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints:
+                          const BoxConstraints(
+                        maxWidth: 1000,
+                      ),
+                      child: _buildBody(),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            Widget _buildBody() {
+              if (_loading) {
+                return const Center(
+                  child:
+                      CircularProgressIndicator(),
+                );
+              }
+
+              if (_error != null) {
+                return Center(
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.all(
+                      24,
+                    ),
+                    child: Column(
+                      mainAxisSize:
+                          MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons
+                              .error_outline_rounded,
+                          size: 48,
+                        ),
+                        const SizedBox(
+                          height: 12,
+                        ),
+                        const Text(
+                          'AniBaka 规则加载失败',
+                        ),
+                        const SizedBox(
+                          height: 8,
+                        ),
+                        SelectableText(
+                          _error!,
+                        ),
+                        const SizedBox(
+                          height: 16,
+                        ),
+                        FilledButton(
+                          onPressed: _load,
+                          child:
+                              const Text(
+                            '重新加载',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              final rules =
+                  _visibleRules;
+
+              return ListView(
+                padding:
+                    const EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  32,
+                ),
+                children: [
+                  Card(
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.all(
+                        20,
+                      ),
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment
+                                .start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons
+                                    .extension_rounded,
+                              ),
+                              const SizedBox(
+                                width: 10,
+                              ),
+                              Text(
+                                'AniBaka 规则库',
+                                style:
+                                    Theme.of(
+                                  context,
+                                ).textTheme
+                                        .titleLarge,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(
+                            height: 8,
+                          ),
+                          Text(
+                            '已加载 ${_rules.length} 条 '
+                            'anx-rule/2 规则。',
+                          ),
+                          const SizedBox(
+                            height: 8,
+                          ),
+                          Text(
+                            '当前版本用于验证规则读取和'
+                            '兼容层接入，暂未接入正式搜索'
+                            '和播放流程。',
+                            style:
+                                Theme.of(
+                              context,
+                            ).textTheme
+                                    .bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(
+                    height: 16,
+                  ),
+                  TextField(
+                    controller: _search,
+                    onChanged: (_) {
+                      setState(() {});
+                    },
+                    decoration:
+                        InputDecoration(
+                      hintText:
+                          '搜索 AniBaka 规则',
+                      prefixIcon:
+                          const Icon(
+                        Icons
+                            .search_rounded,
+                      ),
+                      suffixIcon:
+                          _search.text
+                                  .isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed:
+                                      () {
+                                    _search
+                                        .clear();
+                                    setState(
+                                      () {},
+                                    );
+                                  },
+                                  icon:
+                                      const Icon(
+                                    Icons
+                                        .close_rounded,
+                                  ),
+                                ),
+                      border:
+                          const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(
+                    height: 16,
+                  ),
+                  Text(
+                    '显示 ${rules.length} 条规则',
+                    style:
+                        Theme.of(context)
+                            .textTheme
+                            .titleMedium,
+                  ),
+                  const SizedBox(
+                    height: 8,
+                  ),
+                  if (rules.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding:
+                            EdgeInsets.all(
+                          28,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '没有找到匹配规则',
+                          ),
+                        ),
+                      ),
+                    ),
+                  for (final rule
+                      in rules) ...[
+                    Card(
+                      child: ListTile(
+                        contentPadding:
+                            const EdgeInsets
+                                .symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        leading: const Icon(
+                          Icons
+                              .movie_filter_rounded,
+                        ),
+                        title: Text(
+                          rule.name,
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment
+                                  .start,
+                          children: [
+                            if (rule.baseUrl
+                                .isNotEmpty)
+                              Text(
+                                rule.baseUrl,
+                                maxLines: 1,
+                                overflow:
+                                    TextOverflow
+                                        .ellipsis,
+                              ),
+                            Text(
+                              rule.file,
+                              style:
+                                  Theme.of(
+                                context,
+                              ).textTheme
+                                      .bodySmall,
+                            ),
+                            if (rule
+                                .description
+                                .isNotEmpty)
+                              Text(
+                                rule.description,
+                                maxLines: 2,
+                                overflow:
+                                    TextOverflow
+                                        .ellipsis,
+                              ),
+                          ],
+                        ),
+                        trailing:
+                            const Icon(
+                          Icons
+                              .code_rounded,
+                        ),
+                        onTap: () {
+                          _showJson(
+                            rule,
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(
+                      height: 8,
+                    ),
+                  ],
+                ],
+              );
+            }
+          }
+
+          class _AniBakaRule {
+            const _AniBakaRule({
+              required this.id,
+              required this.name,
+              required this.baseUrl,
+              required this.description,
+              required this.file,
+            });
+
+            final String id;
+            final String name;
+            final String baseUrl;
+            final String description;
+            final String file;
+          }
+          DART
+
+      - name: 增加 AniBaka 页面路由
+        shell: bash
+        run: |
+          set -e
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "lib/pages/plugin_editor/"
+              "plugin_module.dart"
+          )
+
+          text = path.read_text(
+              encoding="utf-8"
+          )
+
+          import_line = (
+              "import "
+              "'package:kazumi/pages/"
+              "plugin_editor/"
+              "anibaka_preview_page.dart';\n"
+          )
+
+          if import_line not in text:
+              marker = (
+                  "import "
+                  "'package:flutter_modular/"
+                  "flutter_modular.dart';\n"
+              )
+
+              if marker not in text:
+                  raise SystemExit(
+                      "找不到 import 插入位置"
+                  )
+
+              text = text.replace(
+                  marker,
+                  marker + import_line,
+                  1,
+              )
+
+          if (
+              "'/anibaka-preview'"
+              not in text
+          ):
+              marker = """      ..route(
+        '/shop',
+"""
+
+              replacement = """      ..route(
+        '/anibaka-preview',
+        child: (context, state) =>
+            const AniBakaPreviewPage(),
+      )
+      ..route(
+        '/shop',
+"""
+
+              if marker not in text:
+                  raise SystemExit(
+                      "找不到 /shop 路由"
+                  )
+
+              text = text.replace(
+                  marker,
+                  replacement,
+                  1,
+              )
+
+          path.write_text(
+              text,
+              encoding="utf-8",
+          )
+
+          print(
+              "AniBaka 页面路由已添加"
+          )
+          PY
+
+      - name: 给规则管理增加 AniBaka 按钮
+        shell: bash
+        run: |
+          set -e
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "lib/pages/plugin_editor/"
+              "plugin_view_page.dart"
+          )
+
+          text = path.read_text(
+              encoding="utf-8"
+          )
+
+          if (
+              "AniBaka 规则"
+              in text
+          ):
+              print(
+                  "AniBaka 按钮已存在"
+              )
+              raise SystemExit(0)
+
+          marker = """                            FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                    minimumSize: const Size(120, 48)),
+                                onPressed: () =>
+                                    context.pushNamed('/settings/plugin/shop'),
+                                icon: const Icon(Icons.travel_explore_rounded),
+                                label: const Text('规则仓库')),
+"""
+
+          replacement = """                            FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                    minimumSize: const Size(120, 48)),
+                                onPressed: () =>
+                                    context.pushNamed('/settings/plugin/shop'),
+                                icon: const Icon(Icons.travel_explore_rounded),
+                                label: const Text('规则仓库')),
+                            FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                    minimumSize: const Size(120, 48)),
+                                onPressed: () => context.pushNamed(
+                                    '/settings/plugin/anibaka-preview'),
+                                icon: const Icon(Icons.extension_rounded),
+                                label: const Text('AniBaka 规则')),
+"""
+
+          if marker not in text:
+              raise SystemExit(
+                  "找不到规则仓库按钮"
+              )
+
+          text = text.replace(
+              marker,
+              replacement,
+              1,
+          )
+
+          path.write_text(
+              text,
+              encoding="utf-8",
+          )
+
+          print(
+              "AniBaka 按钮已添加"
+          )
+          PY
+
       - name: 安装依赖
         run: flutter pub get
 
+      - name: 格式化新增代码
+        run: |
+          dart format \
+            lib/pages/plugin_editor/anibaka_preview_page.dart \
+            lib/pages/plugin_editor/plugin_module.dart \
+            lib/pages/plugin_editor/plugin_view_page.dart
+
+      - name: 静态检查
+        run: |
+          flutter analyze \
+            lib/pages/plugin_editor/anibaka_preview_page.dart \
+            lib/pages/plugin_editor/plugin_module.dart \
+            lib/pages/plugin_editor/plugin_view_page.dart \
+            --no-fatal-infos
+
+      - name: 检查 AniBaka 页面接入
+        shell: bash
+        run: |
+          set -e
+
+          test -f \
+            assets/anibaka/manifest.json
+
+          grep -q \
+            "AniBaka 规则" \
+            lib/pages/plugin_editor/plugin_view_page.dart
+
+          grep -q \
+            "anibaka-preview" \
+            lib/pages/plugin_editor/plugin_module.dart
+
+          echo "AniBaka 接入检查通过"
+
       - name: 构建测试 APK
-        run: flutter build apk --debug
+        run: |
+          flutter build apk \
+            --debug
+
+      - name: 重命名 APK
+        shell: bash
+        run: |
+          set -e
+
+          SOURCE="build/app/outputs/flutter-apk/app-debug.apk"
+
+          TARGET="build/app/outputs/flutter-apk/XingFanWu-AniBaka-Visible.apk"
+
+          test -f "$SOURCE"
+
+          cp \
+            "$SOURCE" \
+            "$TARGET"
+
+          ls -lh "$TARGET"
+
+          sha256sum "$TARGET"
 
       - name: 上传测试 APK
         uses: actions/upload-artifact@v4
         with:
-          name: XingFanWu-AniBaka-Workflow-Test
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: XingFanWu-AniBaka-Visible
+          path: build/app/outputs/flutter-apk/XingFanWu-AniBaka-Visible.apk
           if-no-files-found: error
           retention-days: 7
